@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Collage · 结构审核台</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-mark">▧</span><div>COLLAGE <span class="brand-sub">结构审核台</span></div><span class="local">本地工作区</span></div><div class="top-actions"><span id="overall"></span><button id="help">使用说明</button><span id="save-state" class="muted">载入中</span><button id="save" class="primary">保存修改 <kbd>Ctrl S</kbd></button></div></header>
+<main class="workspace">
+<aside class="sidebar"><div class="sidebar-head"><h2>待审核模板 <span id="total" class="muted"></span></h2><input id="search" placeholder="搜索文件名、标题…" aria-label="搜索模板"><select id="filter" aria-label="筛选模板"><option value="all">全部模板</option><option value="pending">尚未完成</option><option value="issues">有潜在问题</option><option value="reviewed">已审核</option></select></div><div id="case-list" class="case-list"></div><footer class="sidebar-foot">原图与教师快照始终保留<br>每次保存都会留下历史版本</footer></aside>
+<section class="center"><div class="image-heading"><div><div class="eyebrow" id="case-meta">IMAGE REVIEW</div><h1 id="case-title">载入模板…</h1></div><div><button id="previous" title="上一张">←</button><button id="next" title="下一张">→</button></div></div>
+<div class="canvas-toolbar"><div class="tool-group"><button id="select-tool" class="active" title="选择 / 移动 (V)">↖ 选择</button><button id="draw-tool" title="新增元素 (N)">＋ 画框</button><select id="draw-kind" aria-label="新增类别"><option value="photo">照片</option><option value="frame">相框</option><option value="overlay">装饰</option><option value="text">文字</option></select></div><div class="tool-group"><button id="zoom-out" title="缩小">−</button><button id="fit">适应</button><button id="zoom-in" title="放大">＋</button><button id="undo" title="撤销 Ctrl Z">↶</button><button id="redo" title="重做 Ctrl Shift Z">↷</button></div></div>
+<div class="view-options"><label><input id="show-boxes" type="checkbox" checked>元素框</label><label><input id="only-selected" type="checkbox">只看选中</label><label><input id="show-seed" type="checkbox">对比初始框</label><label><input id="show-relations" type="checkbox">关联线</label><button id="background-button">背景设置</button></div>
+<div id="canvas-scroll" class="canvas-scroll"><div id="scene-wrap"><svg id="scene" xmlns="http://www.w3.org/2000/svg" aria-label="图片标注画布"></svg></div><div id="empty-canvas">正在读取图片与标注…</div></div>
+<div class="canvas-footer"><div class="legend"><span class="photo">● 照片</span><span class="frame">● 相框</span><span class="overlay">● 装饰</span><span class="text">● 文字</span></div><span id="canvas-hint">点击元素查看；拖动框和角点修改位置 · 按住空格看原图</span></div></section>
+<aside class="inspector"><nav class="tabs"><button data-tab="issues" class="active">核查提示 <span id="issue-count"></span></button><button data-tab="elements">元素</button><button data-tab="relations">遮挡与层级</button><button data-tab="review">完成审核</button></nav><div id="panel" class="panel"></div></aside>
+</main>
+<div id="toast" role="status"></div>
+<dialog id="modal"><div id="modal-content"></div><div class="dialog-actions"><button id="modal-cancel">取消</button><button id="modal-ok" class="primary">确定</button></div></dialog>
+<script src="/app.js" defer></script>
+</body></html>

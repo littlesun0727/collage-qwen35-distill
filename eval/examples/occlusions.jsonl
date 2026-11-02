@@ -1,0 +1,3 @@
+{"id": "perfect", "occlusion_pairs": [["p", "f"], ["f", "cut"]]}
+{"id": "errors", "occlusion_pairs": [["p", "f"], ["f", "cut"]]}
+{"id": "missing", "occlusion_pairs": [["p", "f"], ["f", "cut"]]}

@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:collage:v9:photo-windows-v3",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "collage-photo-windows-v3"
+    },
+    "photos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "preserve_background": {
+                "type": "boolean"
+              },
+              "stroke": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.1
+                  },
+                  "color": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  },
+                  "pattern": {
+                    "enum": [
+                      "solid",
+                      "dash",
+                      "dot"
+                    ]
+                  },
+                  "dash": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0.001,
+                      "maximum": 0.5
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "line_cap": {
+                    "enum": [
+                      "butt",
+                      "round"
+                    ]
+                  },
+                  "placement": {
+                    "enum": [
+                      "inside",
+                      "center",
+                      "outside"
+                    ]
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.2
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "width",
+                  "color",
+                  "pattern",
+                  "line_cap",
+                  "placement",
+                  "offset"
+                ],
+                "additionalProperties": false,
+                "description": "Stroke the customer segmentation alpha before any window clip; independent of background preservation. No shape or points are accepted here."
+              }
+            },
+            "required": [
+              "preserve_background",
+              "stroke"
+            ],
+            "additionalProperties": false
+          },
+          "mask": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "enum": [
+                  true,
+                  false
+                ]
+              },
+              "shape": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "rectangle",
+                      "rounded_rect",
+                      "ellipse",
+                      "circle",
+                      "star",
+                      "heart",
+                      "polygon"
+                    ]
+                  },
+                  "corner_radius": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.5
+                  },
+                  "star_points": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 12
+                  },
+                  "inner_ratio": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 0.9
+                  },
+                  "points": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 32,
+                    "items": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "const": "rounded_rect"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "corner_radius"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "const": "star"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "star_points",
+                        "inner_ratio"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "const": "polygon"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "points"
+                      ]
+                    }
+                  }
+                ],
+                "description": "Fixed design geometry only. Never trace the reference subject; customer segmentation supplies its contour."
+              },
+              "stroke": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.1
+                  },
+                  "color": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  },
+                  "pattern": {
+                    "enum": [
+                      "solid",
+                      "dash",
+                      "dot"
+                    ]
+                  },
+                  "dash": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0.001,
+                      "maximum": 0.5
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "line_cap": {
+                    "enum": [
+                      "butt",
+                      "round"
+                    ]
+                  },
+                  "placement": {
+                    "enum": [
+                      "inside",
+                      "center",
+                      "outside"
+                    ]
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.2
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "width",
+                  "color",
+                  "pattern",
+                  "line_cap",
+                  "placement",
+                  "offset"
+                ],
+                "additionalProperties": false,
+                "description": "Stroke the fixed window geometry only, never the segmented subject."
+              }
+            },
+            "required": [
+              "enabled"
+            ],
+            "additionalProperties": false,
+            "description": "Fixed photo window, including ordinary rectangular photos, independent of the customer subject silhouette. Disable for a subject sticker without a separate window. Placement does not replace this decision.",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "shape",
+                    "stroke"
+                  ]
+                },
+                "else": {
+                  "properties": {
+                    "shape": false,
+                    "stroke": false
+                  }
+                }
+              }
+            ]
+          },
+          "edge_gradient": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "direction": {
+                "enum": [
+                  "inside",
+                  "outside"
+                ]
+              },
+              "top": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              },
+              "bottom": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              },
+              "left": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              },
+              "right": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              }
+            },
+            "required": [
+              "enabled",
+              "direction",
+              "top",
+              "bottom",
+              "left",
+              "right"
+            ],
+            "additionalProperties": false,
+            "description": "Fixed window edge gradient; requires mask.enabled=true when enabled."
+          },
+          "linked_to": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+            "description": "Only a continuous pop-out foreground: share the named base photo source, crop, transform and video time."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "photo_id",
+          "mask",
+          "edge_gradient",
+          "subject",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "photos"
+  ],
+  "additionalProperties": false
+}

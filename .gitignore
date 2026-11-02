@@ -1,0 +1,14 @@
+.venv/
+.bootstrap/
+.cache/
+__pycache__/
+.pytest_cache/
+models/
+data/
+logs/
+runs/
+.env
+.env.*
+service-model.json
+*.zip
+*.tar.gz

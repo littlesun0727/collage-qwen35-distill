@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:collage:v5:review",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "collage-review-v1"
+    },
+    "scene_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "final_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "needs_changes"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "action": {
+            "enum": [
+              "keep",
+              "adjust",
+              "remove",
+              "generate",
+              "unresolved"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "object",
+            "properties": {
+              "asset_id": {"type": "string", "minLength": 1, "maxLength": 128},
+              "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+              "bbox": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "rotation": {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              },
+              "style": {
+                "$ref": "urn:collage:v5:analysis#/$defs/style"
+              },
+              "crop_center": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "source_crop": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "mirror_x": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "render_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "checked_entire_composition": {
+      "type": "boolean"
+    },
+    "layer_order": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "verdict",
+    "summary",
+    "items"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "render_id"
+      ]
+    },
+    {
+      "required": [
+        "scene_sha256",
+        "final_sha256"
+      ]
+    }
+  ]
+}
