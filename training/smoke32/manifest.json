@@ -1,0 +1,201 @@
+{
+  "purpose": "smoke_only_not_for_model_selection",
+  "count": 32,
+  "family_leakage_checked": false,
+  "coordinate_mode": "normalized_1000",
+  "prompt_sha256": "c82ca3a9ea6ea161d17d4d8d29eb31b109944dc1daf3d54ac2b6551a2d44c7f7",
+  "samples": [
+    {
+      "image_id": 2,
+      "source_sha256": "25bf00c3e3e0718d778814942bf1a6cf5a46308448f01188b861617eba6af889",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 47,
+      "source_sha256": "ce49edc2696fbf1c0ebbd61c5c210d71283b2047471ae3673fb37e9df25e4a81",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 64,
+      "source_sha256": "708efb6c4d72a29780e03b1c626d76e1930e764f04f56b4e8f3b44416e589056",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 89,
+      "source_sha256": "cd8f1562ae43c79677d210fcee2b71c1c678aeadcad468c99a36aa6c00afde2d",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 92,
+      "source_sha256": "be0de6ed1fee801bdb48fb3e2d9b90822f312988759a39e607224f9f6eb5e22f",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 123,
+      "source_sha256": "7d7286d0e9a7d2e207359ca355186760a3d5b0c3c05588c6529244932f4c3c1a",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 140,
+      "source_sha256": "a7dedbb0b944272579bff33b9f6788137f7fe9a6abe56b8b23baaec600bc796c",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 235,
+      "source_sha256": "bf8b8312392eb506c9a80ba8a62dd858f5e6abb4f49dc2457702022c51a2cc6e",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 263,
+      "source_sha256": "da1bddd976b71697a085216d44fd968bc268767f725fc9657a6ce74f14a025e1",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 322,
+      "source_sha256": "e727b58a289f0e7584c54c1497366b2d7d3afe97afbd4ba3022fcdac1bd2c164",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 324,
+      "source_sha256": "7373caec78cc0a1cce3ac8cc6aaba4691b68dae66faacbc7f558df904be276af",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 356,
+      "source_sha256": "d69ce9462d0d9ae4388db6952e72ce3f029d6a5989d93ccaee7f83547c1b449a",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 359,
+      "source_sha256": "6a9439ebcd6887d64f4543f16296ad0d8f3260f3722e13fb5db1ef42ca1d7495",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 398,
+      "source_sha256": "4c13abd37029119077803c899ac297868ba73e61cf4707aee3507dca70793d90",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 399,
+      "source_sha256": "b55025cf7bb47c23b6ab31d1ad1812e21ff02c4a417f9de1413fe51c8626c153",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 407,
+      "source_sha256": "5b017e23a114bf9c7145761d64e69fe83c61697315f042deea461c3721d9cc46",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 463,
+      "source_sha256": "388b30e368bfdeba528aca0aa0c53c01b56b2499f8d5cb63258bc59e13186553",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 489,
+      "source_sha256": "113304f02cff8c59f2fb92d5a1b0b9bc2696b6950b5561c03cdbbfeccffbfc75",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 504,
+      "source_sha256": "a06bdb876dd0659c43e3f825d14d9ba20fdb32b93aa663669cffc58af048524d",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 519,
+      "source_sha256": "681ad772c97abc89022df287c57c8b404ed10e35d3e1675b3a38f9be5ae99cc1",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 533,
+      "source_sha256": "181e6cf848ca90fbda84d1d6e916da581a4575f7168ee0b9de059099cafa19f2",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 565,
+      "source_sha256": "d1bae2930860a85e772fe3e60898d96d3eb896a6b9ad1da757ee2c397e9c9d74",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 627,
+      "source_sha256": "44d5e3e753145043d93df5ede445cc773cf72a6f350b07f56533a8e32067975f",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 642,
+      "source_sha256": "9441d62f70d9c985db0838ca31196d47b3d0ec765e03a971cc389f0cba79b0a2",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 675,
+      "source_sha256": "33d8c3d7a34bf3cfc0a1415f119029ff926342ebb160616dbb07d68f715201fd",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 689,
+      "source_sha256": "258e445d3e6832e5e0a51fbc49317f3e71ffade0d4714d90d48fb83018008a8b",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 713,
+      "source_sha256": "77982032ad4d42dd0b6f69af0499f7fed07d6dd71c287e60101250dab71dc54b",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 758,
+      "source_sha256": "1756de6c1c6a9ebcdd22c5935143ea4714f56289aad0a6bda977450781e9ce0f",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 785,
+      "source_sha256": "a06c25cf1fbbe67516597340e2d330d3925c5d018a865ccf238aa1d82fcdfc03",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 856,
+      "source_sha256": "046a9adae2b83131d21c629661e56723e15d71b2b4b5536419328bedae8c733b",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 869,
+      "source_sha256": "f72d8c00a90503b28ea1353586a4b1b855dee4c998fdd379a2db8ae282284eb1",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    },
+    {
+      "image_id": 870,
+      "source_sha256": "11965dbb5c995358bd2292ac9c4a330c8dd10cc1bbaae3063c04ed3a5b1bf752",
+      "label_status": "teacher_generated_unreviewed",
+      "source_coordinate_mode": "pixel"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
-此 GitHub 分支只包含训练代码，不包含训练图片与标签。
-第一步：从本地 qwen35-lora-smoke32.zip 中取出 training/smoke32，单独传到训练机仓库的 training/smoke32。
+此 GitHub 分支包含训练代码和 32 张流程测试图片与标签。
+第一步：拉取 feat/qwen35-4b-lora 分支，training/smoke32 已随仓库提供，无需单独传数据。
 第二步：进入 training 的上一级目录，激活环境。
 
 conda activate collage-qwen35-train
