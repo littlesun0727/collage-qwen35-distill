@@ -1,0 +1,37 @@
+此 GitHub 分支只包含训练代码，不包含训练图片与标签。
+第一步：从本地 qwen35-lora-smoke32.zip 中取出 training/smoke32，单独传到训练机仓库的 training/smoke32。
+第二步：进入 training 的上一级目录，激活环境。
+
+conda activate collage-qwen35-train
+
+第三步：启动 10 步 LoRA。把模型路径和 GPU 编号改成自己的。
+这里 GPU 4 只是此前截图里的空闲卡，必须确认是分配给你的卡。
+
+python training/run_lora.py --model /你的模型目录/Qwen3.5-4B --gpu 4
+
+默认：单卡 BF16、语言部分 LoRA、rank16、batch1、梯度累积4、10个 optimizer steps。
+序列预算 12288，图片预算 1024 tokens，SDPA，关闭 packing。
+训练只学习 assistant 的 structure 三字段答案，忽略空 thinking 前缀。
+超长样本会被删除而不是截断：务必检查日志中的编码后数据量。
+原始业务 prompt 较长，因此序列预算比之前估计的 8K 留了更多余量。
+没有 CUDA 加速扩展时线性注意力可能较慢；先验证前向反向，不代表最终训练速度。
+训练中不需要访问教师模型，也不需要启动 vLLM。
+
+终端显示运行目录；其中 run.log 是完整日志，checkpoints 下保存 LoRA。
+日志里的 loss 应是有限数，可训练参数应非零，最后应出现 checkpoint-10。
+具体 checkpoint 路径可能在 checkpoints/v0-时间戳/checkpoint-10 下。
+
+第四步：用刚保存的 checkpoint 重新加载，检查四张训练图的生成结果。
+
+python training/run_lora.py --model /你的模型目录/Qwen3.5-4B --gpu 4 --adapter /实际输出目录/checkpoint-10
+
+推理结果在本次新运行目录的 predictions.jsonl。
+这一步仅验证重新加载和生成；不构成独立验证集成绩。
+生成内容应是 JSON，再经现有结构校验器检查；脚本不声称模型输出一定合法。
+
+smoke32 是教师未经人工验收标签的流程测试包，没有做模板家族去重/评测泄漏审核。
+只用于跑通，不用于正式训练选模，也不要把该 checkpoint 当正式模型发布。
+正式训练前另做质量筛选、固定评测集排除、模板家族分组和独立验证集。
+
+首次运行如果报错，把 run.log 的末尾错误发回来；不要直接升级所有包。
+本地已检查数据导出和命令生成，尚未在目标 GPU 实测。
