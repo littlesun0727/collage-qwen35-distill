@@ -1,0 +1,50 @@
+两张卡的用法：一张训练，一张预览，不需要部署 vLLM。
+以下 4 和 5 只是示例 GPU 编号，必须替换为实际分配给你的两张卡。
+同样将模型和 checkpoint 路径替换为实际路径。
+
+1. 更新代码（不会改变已经运行的训练进程参数）。
+git pull --ff-only
+conda activate collage-qwen35-train
+
+2. 新训练每 10 步保存一次，示例总计 100 步。
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 4 --max-steps 100 --save-steps 10
+
+所有 checkpoint 都保留，避免训练自动清理正在预览的 checkpoint。
+预览完成后可自行清理不再需要的旧 checkpoint。频繁保存会增加磁盘和 I/O 开销。
+32 张 smoke 数据跑 100 步只是演示保存间隔，会反复训练这些图片，不代表建议的正式训练量。
+已经启动的旧训练不会因为 git pull 而开始中途保存；旧版本默认到第 10 步保存并结束。
+
+3. 准备固定预览图片目录，例如 preview_images，放 4～8 张未参加训练的图片。
+不要把预测框图放进去；基线和每个 checkpoint 使用同一批图片。
+这只是人工选图，程序不会自动保证图片与训练数据及模板家族独立。
+
+4. 另开终端，用第二张卡跑一次原始 4B 基线。
+conda activate collage-qwen35-train
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 5 --preview --images preview_images --limit 8 --output runs/preview-base
+
+5. 等训练日志确认 checkpoint-10 保存完成，再用第二张卡预览该 checkpoint。
+不要只看到目录出现就开始读；不要选择正在保存或不完整的 checkpoint。
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 5 --adapter /实际路径/checkpoint-10 --images preview_images --limit 8 --compare-to runs/preview-base --output runs/preview-step10
+
+6. 查看 runs/preview-step10/preview.html。
+页面并排展示原图、基线框、当前 checkpoint 的框；可以展开看原始 JSON。
+将整个 runs/preview-step10 目录下载到本机再打开 HTML（里面包含 preview-assets 图片）。
+predictions.jsonl 保留原始回复。基础检查失败也会展示错误和回复，不会用修复结果冒充模型原始输出。
+这份报告没有 GT，不计算准确率，也不取代仓库的六项正式评测。
+查看 frame.photo_id、linked_to、layer_order 时展开 JSON；框图目前只展示类别、ID 和 bbox。
+
+7. 第 20、30……步重复步骤 5，改 checkpoint 路径和新的 output 目录即可。
+不用再跑基线，也不会让预览 GPU 参与训练。
+如果不传 --images，默认看 smoke32 中前 4 张训练图，只适合检查拟合。
+
+8. 如确实暂停过训练，可恢复完整 trainer 状态。
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 4 --max-steps 100 --save-steps 10 --resume /实际路径/checkpoint-20
+
+max-steps 是目标总步数，不是额外步数；原计划为100、从20恢复时继续到100。
+恢复需保持数据、模型、序列长度、图片预算等设置一致。
+更改原计划总步数可能改变学习率调度，不等价于一开始就按新总步数训练。
+
+只重建已有预测报告（不加载模型、不占GPU）：
+python training/preview_report.py --run runs/preview-step10 --baseline runs/preview-base
+
+安装依赖不变，沿用之前的环境即可。
