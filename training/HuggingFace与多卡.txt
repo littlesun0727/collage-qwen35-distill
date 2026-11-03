@@ -1,0 +1,62 @@
+数据集：congerjing/collage-structure-sft-v1
+已核对版本：634239ab2347fe36b807f6a143df6171ef697f0f（默认固定，不随 main 改动）
+训练5272条、验证587条、测试137条；保持发布者现有划分。
+训练标签和验证标签为未经人工审核的教师标注；test 是既有 covers137 回归基准。
+数据集的自动相似度分组不代表已完全排除所有同模板变体。
+
+更新并激活：
+git pull --ff-only
+conda activate collage-qwen35-train
+
+方式A：有网的训练机，直接指定HF数据集（首次会下载完整图片快照，下载在启动GPU训练之前完成）。
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpus 4,5 --hf-dataset congerjing/collage-structure-sft-v1 --epochs 1 --batch-size 1 --grad-accum 8 --save-steps 50 --eval-steps 50
+
+方式B：先在有网机器完整下载，再把 collage-data 整个目录传到训练机。
+python training/dataset_io.py --output collage-data
+
+离线训练：
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpus 4,5 --data /数据目录/collage-data --epochs 1 --batch-size 1 --grad-accum 8 --save-steps 50 --eval-steps 50
+
+同样支持单卡，--gpus 4 即可；--gpu 是同一个参数的兼容别名。
+4,5 只是示例，替换为实际分配的物理GPU编号/UUID；本程序只支持单机多卡。
+不要再外套 torchrun：程序设置 NPROC_PER_NODE，swift CLI 会自行启动分布式进程。
+每张卡持有完整模型并处理不同样本，通过DDP同步LoRA梯度，不是将模型切开。
+有效batch = GPU数 × batch-size × grad-accum。上述两卡配置是 2×1×8=16。
+单卡要保持同样有效batch可用 batch-size1、grad-accum16。
+要比较单卡/多卡速度，应比较同样样本数的总耗时或 samples/s，而不是只比较 s/it。
+四卡示例：--gpus 0,1,2,3 --batch-size 1 --grad-accum 4，仍然有效batch16。
+有独立预览卡时，请从训练 --gpus 列表中排除它；两张卡都训练后就没有独立预览卡了。
+通信使用 NCCL；端口冲突时设置 --master-port 29501。
+
+先跑20步检查：将 --epochs 1 换成 --max-steps 20 --save-steps 10 --eval-steps 10。
+不传 --epochs/--max-steps 时仍保留旧默认值10步，避免误启动长训练。
+eval-steps 控制验证集loss，不是自动生成框图。图片预览仍用下面的独立入口。
+
+对HF数据集的验证集做原始模型预览（默认取前4张，可用 --limit 调整）：
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 6 --data /数据目录/collage-data --preview --output runs/hf-base
+
+对同一验证集做LoRA预览：
+python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 6 --data /数据目录/collage-data --adapter /实际路径/checkpoint-50 --compare-to runs/hf-base --output runs/hf-step50
+
+指定自己的固定图片，加 --images preview_images，仍沿用 --data 对应的数据集prompt与消息角色。
+最终回归可显式使用 --preview-split test --limit 137；不要用test选择checkpoint。
+训练代码永远只读取 train.jsonl 和 validation.jsonl，不会将 test 自动混入。
+
+重要接口差异：
+该HF数据集的prompt放在user消息内；答案有version、coordinate_mode和三个核心字段。
+现在原样保留所有消息、JSON答案和已归一化的整数坐标，不再次换算或删字段。
+推理必须使用同一个 --data，不能误用旧 smoke32 的prompt。
+导出的 input.jsonl/validation.jsonl 只把图片相对路径改为当前机器上的绝对路径。
+快照移动到另一台机器后重新运行启动器即可，不要复用旧机器runs目录中的绝对路径JSONL。
+如果根目录有checksums.json，启动时校验所读取JSONL的SHA256；完整图片校验可另外运行数据集自带校验程序。
+模型仍需是本地完整目录；训练子进程保持离线，下载操作仅发生在父进程的 --hf-dataset 路径。
+如果想取数据集后续版本，显式加 --hf-revision main；每次先解析成具体commit再下载并记录。
+不执行HF数据集中的Python文件，使用本仓库的数据读取代码。
+
+加速：
+默认仍是SDPA，可用 --attn-impl flash_attention_2 进行对照；它不能代替FLA/causal-conv1d。
+batch和累积都可调；先确认线性注意力加速生效，再扩大batch。
+超长样本仍删除而不截断，请检查日志中编码后样本数量；--max-length 默认12288。
+保留所有checkpoint以支持并行预览，定期自行清理不再需要的旧文件。
+
+本地已验证数据契约和分布式命令生成；未在目标A100机器实测多卡/NCCL或全量训练。

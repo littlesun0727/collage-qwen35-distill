@@ -12,3 +12,4 @@ accelerate
 pillow
 tensorboard
 jsonschema
+huggingface-hub

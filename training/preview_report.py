@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps
 
-from prepare_smoke import normalize_structure
+from dataset_io import validate_target
 
 
 def load_results(run):
@@ -26,10 +26,7 @@ def load_results(run):
         try:
             if not isinstance(response, str):
                 raise ValueError('Missing textual response')
-            target = json.loads(response)
-            if not isinstance(target, dict) or set(target) != {'background', 'objects', 'layer_order'}:
-                raise ValueError('Output must contain exactly background, objects, layer_order')
-            target = normalize_structure({'coordinate_mode': 'normalized_1000', **target}, im.size)
+            target = validate_target(response)
         except (ValueError, TypeError, KeyError) as exc:
             error = str(exc)
             target = None

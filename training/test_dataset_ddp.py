@@ -1,0 +1,102 @@
+"""CPU tests for HF contract preservation, split isolation and DDP launch arguments."""
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from PIL import Image
+from dataset_io import load_split, assert_split_isolation, validate_target
+
+
+class DatasetDDPTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.data = self.root / 'dataset'
+        (self.data / 'images').mkdir(parents=True)
+        self.model = self.root / 'model'
+        self.model.mkdir()
+        (self.model / 'config.json').write_text('{}')
+        self.target = {'version': 'structure-analysis-v9-12-frame-photo-list',
+                       'coordinate_mode': 'normalized_1000', 'background': {'type': 'transparent'},
+                       'objects': [{'id': 'photo_1', 'kind': 'photo', 'bbox': [0, 0, 1000, 1000],
+                                    'description': '测试照片'}], 'layer_order': ['photo_1']}
+        self.prompt = '<image>\n冻结的用户消息任务指令'
+        self.answer = json.dumps(self.target, ensure_ascii=False)
+        for split in ['train', 'validation', 'test']:
+            Image.new('RGB', (10, 20), 'white').save(self.data / 'images' / f'{split}.png')
+            row = {'messages': [{'role': 'user', 'content': self.prompt},
+                                {'role': 'assistant', 'content': self.answer}],
+                   'images': [f'images/{split}.png']}
+            (self.data / f'{split}.jsonl').write_text(json.dumps(row, ensure_ascii=False)+'\n', encoding='utf-8')
+        self.launcher = Path(__file__).with_name('run_lora.py')
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def launch(self, extra, name='run', success=True):
+        out = self.root / name
+        result = subprocess.run([sys.executable, str(self.launcher), '--model', str(self.model),
+            '--data', str(self.data), '--output', str(out), '--dry-run'] + extra,
+            capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if success:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return out, json.loads((out / 'command.json').read_text(encoding='utf-8'))
+        self.assertNotEqual(result.returncode, 0)
+        return result
+
+    def test_two_gpu_epochs_and_split_preservation(self):
+        out, info = self.launch(['--gpus', '4,5', '--epochs', '1', '--grad-accum', '8'])
+        self.assertEqual(info['effective_batch_size'], 16)
+        self.assertEqual(info['launch_env']['NPROC_PER_NODE'], '2')
+        self.assertEqual(info['launch_env']['CUDA_VISIBLE_DEVICES'], '4,5')
+        cmd = info['argv']
+        self.assertEqual(cmd[cmd.index('--max_steps')+1], '-1')
+        self.assertEqual(cmd[cmd.index('--num_train_epochs')+1], '1.0')
+        self.assertEqual(cmd[cmd.index('--split_dataset_ratio')+1], '0')
+        self.assertIn('--val_dataset', cmd)
+        self.assertNotIn('test.jsonl', ' '.join(cmd))
+        for split, file in [('train', 'input.jsonl'), ('validation', 'validation.jsonl')]:
+            row = json.loads((out / file).read_text(encoding='utf-8'))
+            self.assertEqual(row['messages'][0], {'role': 'user', 'content': self.prompt})
+            self.assertEqual(row['messages'][1]['content'], self.answer)
+            self.assertEqual(row['images'], [str((self.data / 'images' / f'{split}.png').resolve())])
+
+    def test_preview_defaults_to_validation_and_strips_answer(self):
+        out, info = self.launch(['--gpu', '6', '--preview'])
+        row = json.loads((out / 'input.jsonl').read_text(encoding='utf-8'))
+        self.assertEqual(row['messages'], [{'role': 'user', 'content': self.prompt}])
+        self.assertTrue(row['images'][0].endswith('validation.png'))
+        self.assertNotIn('NPROC_PER_NODE', info['launch_env'])
+        self.assertEqual(info['split'], 'validation')
+
+    def test_guards(self):
+        self.launch(['--gpus', '4,4'], success=False)
+        self.launch(['--gpus', '4,5', '--preview'], success=False)
+        self.launch(['--gpu', '4', '--preview-split', 'test'], success=False)
+        row = json.loads((self.data / 'train.jsonl').read_text(encoding='utf-8'))
+        (self.data / 'validation.jsonl').write_text(json.dumps(row), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'overlapping'):
+            assert_split_isolation(load_split(self.data, 'train'), load_split(self.data, 'validation'))
+
+    def test_checksum_and_coordinates(self):
+        self.assertEqual(validate_target(self.answer), self.target)
+        target = dict(self.target, coordinate_mode='pixel')
+        with self.assertRaisesRegex(ValueError, 'normalized_1000'):
+            validate_target(json.dumps(target))
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            validate_target('{"background":{},"background":{}}')
+        checksum = hashlib.sha256((self.data / 'train.jsonl').read_bytes()).hexdigest()
+        (self.data / 'checksums.json').write_text(json.dumps({'train.jsonl': checksum}))
+        self.assertEqual(len(load_split(self.data, 'train')), 1)
+        with (self.data / 'train.jsonl').open('a', encoding='utf-8') as f:
+            f.write('\n')
+        with self.assertRaisesRegex(ValueError, 'Checksum'):
+            load_split(self.data, 'train')
+
+
+if __name__ == '__main__':
+    unittest.main()
