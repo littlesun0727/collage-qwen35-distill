@@ -10,9 +10,21 @@ from PIL import Image, ImageDraw, ImageOps
 from dataset_io import validate_target
 
 
-def load_results(run):
+def load_results(run, cache=None, partial=False):
     rows = []
-    for line in (run / 'predictions.jsonl').read_text(encoding='utf-8').splitlines():
+    path = run / 'predictions.jsonl'
+    if not path.exists() and partial:
+        return rows
+    # A writer can be midway through a UTF-8 character or JSON line.
+    data = path.read_bytes()
+    if partial:
+        data = data[:data.rfind(b'\n') + 1]
+    for line in data.decode('utf-8').splitlines():
+        if not line.strip():
+            continue
+        if cache is not None and line in cache:
+            rows.append(cache[line])
+            continue
         row = json.loads(line)
         paths = row.get('images', [])
         if len(paths) != 1 or not isinstance(paths[0], str):
@@ -30,8 +42,11 @@ def load_results(run):
         except (ValueError, TypeError, KeyError) as exc:
             error = str(exc)
             target = None
-        rows.append({'source': source, 'image': im, 'digest': digest, 'response': response,
-                     'target': target, 'error': error})
+        parsed = {'source': source, 'image': im, 'digest': digest, 'response': response,
+                  'target': target, 'error': error}
+        rows.append(parsed)
+        if cache is not None:
+            cache[line] = parsed
     return rows
 
 
@@ -50,10 +65,10 @@ def draw_boxes(image, target):
     return result
 
 
-def build_report(run, baseline=None):
+def build_report(run, baseline=None, *, partial=False, expected=None, cache=None, quiet=False, running=None):
     run = Path(run).resolve()
-    rows = load_results(run)
-    if not rows:
+    rows = load_results(run, cache=cache, partial=partial)
+    if not rows and not partial:
         raise ValueError('No inference results')
     old = {}
     if baseline:
@@ -67,7 +82,7 @@ def build_report(run, baseline=None):
         prior_cmd = json.loads((baseline / 'command.json').read_text(encoding='utf-8'))
         if current_cmd['image_tokens'] != prior_cmd['image_tokens']:
             raise ValueError('Baseline image-token budget differs')
-        old = {r['digest']: r for r in load_results(baseline)}
+        old = {r['digest']: r for r in load_results(baseline, cache=cache)}
     assets = run / 'preview-assets'
     assets.mkdir(exist_ok=True)
     cards = []
@@ -75,13 +90,15 @@ def build_report(run, baseline=None):
     def cell(row, name, label):
         if row is None:
             return '<div>没有对应的基线图片</div>'
-        picture = draw_boxes(row['image'], row['target']) if row['target'] else row['image']
-        picture.save(assets / name)
+        if cache is None or not (assets / name).exists():
+            picture = draw_boxes(row['image'], row['target']) if row['target'] else row['image']
+            picture.save(assets / name)
         status = '基础结构检查通过' if row['target'] else '检查失败：' + row['error']
         return (f'<div><h3>{label}</h3><img src="preview-assets/{name}"><p>{html.escape(status)}</p>'
                 f'<details><summary>查看模型原始 JSON / 回复</summary><pre>{html.escape(str(row["response"]))}</pre></details></div>')
     for i, row in enumerate(rows):
-        row['image'].save(assets / f'{i}-original.png')
+        if cache is None or not (assets / f'{i}-original.png').exists():
+            row['image'].save(assets / f'{i}-original.png')
         valid += row['target'] is not None
         cells = f'<div><h3>原图</h3><img src="preview-assets/{i}-original.png"></div>'
         if baseline:
@@ -93,14 +110,22 @@ def build_report(run, baseline=None):
         else:
             (assets / f'{i}-structure.json').unlink(missing_ok=True)
         cards.append(f'<article><h2>{html.escape(row["source"].name)}</h2><section>{cells}</section></article>')
-    page = ('<!doctype html><meta charset="utf-8"><title>LoRA 预测预览</title>'
+    progress = f'已完成 {len(rows)} / {expected}' if expected is not None else f'已完成 {len(rows)} 张'
+    running = partial if running is None else running
+    refresh = '<meta http-equiv="refresh" content="10">' if running else ''
+    page = ('<!doctype html><meta charset="utf-8">' + refresh + '<title>LoRA 预测预览</title>'
             '<style>body{font-family:sans-serif;margin:24px;background:#f4f5f7}article{background:white;padding:16px;margin:20px 0}'
             'section{display:flex;gap:12px}section>div{flex:1;min-width:0}img{width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>'
-            f'<h1>LoRA 预测预览</h1><p>基础结构检查通过 {valid}/{len(rows)}。'
+            f'<h1>LoRA 预测预览</h1><p>{progress}。' + ('推理进行中，每10秒刷新。' if running else '推理已结束；是否全部成功请核对完成数量和日志。') +
+            f'</p><p>基础结构检查通过 {valid}/{len(rows)}。'
             '这不是完整业务校验或准确率；查看照片框、装饰、frame 关联和 layer_order 的 JSON。'
             '若使用训练图片，只能检查拟合，不能证明泛化。</p>' + ''.join(cards))
-    (run / 'preview.html').write_text(page, encoding='utf-8')
-    print('PREVIEW:', run / 'preview.html')
+    tmp = run / 'preview.html.tmp'
+    tmp.write_text(page, encoding='utf-8')
+    tmp.replace(run / 'preview.html')
+    if not quiet:
+        print('PREVIEW:', run / 'preview.html')
+    return len(rows)
 
 
 if __name__ == '__main__':

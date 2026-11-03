@@ -48,3 +48,12 @@ max-steps 是目标总步数，不是额外步数；原计划为100、从20恢�
 python training/preview_report.py --run runs/preview-step10 --baseline runs/preview-base
 
 安装依赖不变，沿用之前的环境即可。
+
+逐张实时结果（更新后的默认行为，无需额外参数）：
+每完成一张，立即追加 predictions.jsonl、刷新 preview.html，并打印 [PREVIEW] 已完成 N/总数。
+HTML运行时每10秒自动刷新；结束后停止刷新。生成第一张完整JSON之前，计数仍为0。
+若在服务器浏览报告，可查看实时更新；下载到本地的副本不会自动同步服务器新文件。
+模型只加载一次，write_batch_size=1 控制每张落盘；不会打印逐token文本。
+中断或报错时已完成的原始结果仍保留，报告显示已完成数量。
+git pull 不能改变正在运行的旧进程；新行为在重新启动的预览任务中生效。
+重新启动需要新的 --output 目录；目前不会自动续跑旧目录中的剩余图片。

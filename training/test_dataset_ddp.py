@@ -72,6 +72,7 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertTrue(row['images'][0].endswith('validation.png'))
         self.assertNotIn('NPROC_PER_NODE', info['launch_env'])
         self.assertEqual(info['split'], 'validation')
+        self.assertEqual(info['argv'][info['argv'].index('--write_batch_size') + 1], '1')
 
     def test_guards(self):
         self.launch(['--gpus', '4,4'], success=False)

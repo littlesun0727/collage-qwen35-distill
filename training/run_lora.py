@@ -116,7 +116,7 @@ def main():
         cmd += ['--infer_backend', 'transformers',
                 '--val_dataset', str(dataset), '--result_path', str(out / 'predictions.jsonl'),
                 '--enable_thinking', 'false', '--stream', 'false', '--temperature', '0',
-                '--max_new_tokens', '8192', '--max_batch_size', '1']
+                '--max_new_tokens', '8192', '--max_batch_size', '1', '--write_batch_size', '1']
     else:
         cmd += ['--dataset', str(dataset), '--split_dataset_ratio', '0',
                 '--tuner_type', 'lora', '--target_modules', 'all-linear',
@@ -153,6 +153,7 @@ def main():
         env.pop(key, None)
     env.update(CUDA_VISIBLE_DEVICES=','.join(gpu_ids), IMAGE_MAX_TOKEN_NUM=str(args.image_tokens),
                HF_HUB_OFFLINE='1', HF_DATASETS_OFFLINE='1',
+               PYTHONUNBUFFERED='1',
                PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True')
     if not infer:
         env.update(NPROC_PER_NODE=str(world_size), NNODES='1', NODE_RANK='0',
@@ -170,10 +171,17 @@ def main():
     if args.dry_run:
         print(json.dumps(cmd, indent=2))
         return
+    watcher = None
+    if infer:
+        from live_preview import LivePreview
+        watcher = LivePreview(out, len(records), args.compare_to)
     with (out / 'run.log').open('w', encoding='utf-8') as log:
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding='utf-8', errors='replace', bufsize=1,
                                 start_new_session=(os.name == 'posix'))
+        if watcher:
+            watcher.start()
+        code = None
         try:
             for line in proc.stdout:
                 print(line, end='', flush=True)
@@ -194,11 +202,14 @@ def main():
                     proc.kill()
                 proc.wait()
             raise
+        finally:
+            if watcher:
+                try:
+                    watcher.finish(success=(code == 0))
+                except Exception as exc:
+                    print(f'Preview generation failed; raw predictions retained: {exc}', flush=True)
     if code:
         raise SystemExit(f'swift failed ({code}); see {out / "run.log"}')
-    if infer:
-        from preview_report import build_report
-        build_report(out, args.compare_to)
     print('SWIFT_COMPLETED. Inspect loss, encoded sample count and checkpoint; this is not an accuracy evaluation.')
 
 
