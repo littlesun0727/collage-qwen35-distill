@@ -1,0 +1,18 @@
+适用于 training/run_lora.py 的裸模型 --preview 和 LoRA --adapter 评测，支持 transformers / vllm 两个后端。
+
+新增参数：
+--temperature 0.2
+--repetition-penalty 1.05
+
+不传参数时保持原行为：temperature=0；repetition_penalty 不覆盖，沿用 SWIFT/模型配置，不能直接假定它一定是1。
+temperature=0 为贪心解码；大于0启用采样，其他采样参数沿用原配置。
+repetition_penalty=1 表示不惩罚，大于1抑制重复 token，不是 object 去重。
+上述参数只可用于推理，训练时传入会报错；不改权重或依赖。
+启动日志和 command.json 会记录设置；repetition_penalty=null 表示未覆盖默认值。
+
+在原评测命令末尾添加参数即可，保持模型、图片预算、输出上限相同，每次使用新的 --output 目录。
+为了区分效果，推荐三个对照（其他参数完全相同）：
+A：--temperature 0 --repetition-penalty 1.0
+B：--temperature 0.2 --repetition-penalty 1.0
+C：--temperature 0 --repetition-penalty 1.05
+采样结果有随机性，重复出现的 JSON 字段也可能被惩罚；同时检查重复、漏框和 JSON 完整性。

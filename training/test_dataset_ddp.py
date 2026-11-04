@@ -115,6 +115,29 @@ class DatasetDDPTests(unittest.TestCase):
             self.launch(['--gpu', '4', '--preview', '--infer-backend', 'vllm'] + extra, success=False)
         self.launch(['--gpu','4','--preview','--merge-lora'], success=False)
 
+    def test_generation_controls_for_both_backends(self):
+        for backend in ('transformers', 'vllm'):
+            _, info = self.launch(['--gpu', '6', '--preview', '--infer-backend', backend,
+                '--temperature', '0.2', '--repetition-penalty', '1.05'], name=backend)
+            cmd = info['argv']
+            self.assertEqual(cmd[cmd.index('--temperature')+1], '0.2')
+            self.assertEqual(cmd[cmd.index('--repetition_penalty')+1], '1.05')
+            self.assertEqual(info['temperature'], 0.2)
+            self.assertEqual(info['repetition_penalty'], 1.05)
+        _, info = self.launch(['--gpu', '6', '--preview'], name='defaults')
+        self.assertEqual(float(info['argv'][info['argv'].index('--temperature')+1]), 0)
+        self.assertNotIn('--repetition_penalty', info['argv'])
+        self.assertIsNone(info['repetition_penalty'])
+        _, info = self.launch(['--gpu', '6'], name='train-defaults')
+        self.assertNotIn('--temperature', info['argv'])
+        self.assertNotIn('--repetition_penalty', info['argv'])
+        for flag, values in (('--temperature', ['-1', 'nan', 'inf']),
+                             ('--repetition-penalty', ['0', '-1', 'nan', 'inf'])):
+            for value in values:
+                self.launch(['--gpu', '6', '--preview', flag, value], success=False)
+        for extra in (['--temperature', '0'], ['--repetition-penalty', '1']):
+            self.launch(['--gpu', '6'] + extra, success=False)
+
     def test_guards(self):
         self.launch(['--gpus', '4,4'], success=False)
         self.launch(['--gpus', '4,5', '--preview'], success=False)

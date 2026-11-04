@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -39,6 +40,9 @@ def main():
     p.add_argument('--infer-backend', choices=['transformers', 'vllm'], help='Preview only; default transformers')
     p.add_argument('--infer-batch-size', type=int, help='Preview submission/write batch; default 1 (Transformers), 8 (vLLM)')
     p.add_argument('--max-new-tokens', type=int, help='Preview output limit; default 8192')
+    p.add_argument('--temperature', type=float, help='Inference only; default 0 (greedy)')
+    p.add_argument('--repetition-penalty', type=float,
+                   help='Inference only; 1 disables penalty; omitted preserves SWIFT/model default')
     p.add_argument('--merge-lora', action='store_true', help='Merge saved adapter on CPU before inference (SWIFT export)')
     p.add_argument('--vllm-gpu-memory-utilization', type=float, help='Fraction of whole GPU memory; default 0.7')
     p.add_argument('--vllm-max-model-len', type=int, help='Total context; default max-length + max-new-tokens')
@@ -54,7 +58,8 @@ def main():
     vllm_options = (args.vllm_gpu_memory_utilization is not None or
                     args.vllm_max_model_len is not None or args.vllm_enforce_eager)
     if not infer and (args.infer_backend is not None or args.infer_batch_size is not None or
-                      args.max_new_tokens is not None or args.merge_lora or vllm_options):
+                      args.max_new_tokens is not None or args.merge_lora or vllm_options or
+                      args.temperature is not None or args.repetition_penalty is not None):
         p.error('Inference options require --preview or --adapter; they cannot affect SFT')
     backend = (args.infer_backend or 'transformers') if infer else None
     if vllm_options and backend != 'vllm':
@@ -66,6 +71,12 @@ def main():
     attn_impl = args.attn_impl or ('sdpa' if infer else 'flash_attention_2')
     infer_batch = args.infer_batch_size if args.infer_batch_size is not None else (8 if backend == 'vllm' else 1)
     max_new_tokens = args.max_new_tokens if args.max_new_tokens is not None else 8192
+    temperature = args.temperature if args.temperature is not None else 0.0
+    if not math.isfinite(temperature) or temperature < 0:
+        p.error('--temperature must be finite and >= 0')
+    if args.repetition_penalty is not None and (
+            not math.isfinite(args.repetition_penalty) or args.repetition_penalty <= 0):
+        p.error('--repetition-penalty must be finite and > 0')
     vllm_memory = args.vllm_gpu_memory_utilization if args.vllm_gpu_memory_utilization is not None else 0.7
     vllm_length = args.vllm_max_model_len if args.vllm_max_model_len is not None else args.max_length + max_new_tokens
     if infer_batch < 1 or max_new_tokens < 1:
@@ -151,8 +162,10 @@ def main():
             cmd += ['--merge_lora', 'true']
         cmd += ['--infer_backend', backend,
                 '--val_dataset', str(dataset), '--result_path', str(out / 'predictions.jsonl'),
-                '--enable_thinking', 'false', '--stream', 'false', '--temperature', '0',
+                '--enable_thinking', 'false', '--stream', 'false', '--temperature', str(temperature),
                 '--max_new_tokens', str(max_new_tokens), '--write_batch_size', str(infer_batch)]
+        if args.repetition_penalty is not None:
+            cmd += ['--repetition_penalty', str(args.repetition_penalty)]
         if backend == 'vllm':
             # Do not inherit the training attention backend during CPU merge.
             # Model, data, precision and generation settings are explicit here.
@@ -215,6 +228,8 @@ def main():
         'image_tokens': args.image_tokens, 'source': provenance, 'split': split,
         'infer_backend': backend, 'infer_batch_size': infer_batch if infer else None,
         'max_new_tokens': max_new_tokens if infer else None,
+        'temperature': temperature if infer else None,
+        'repetition_penalty': args.repetition_penalty if infer else None,
         'train_count': len(records) if not infer else 0, 'validation_count': len(validation),
         'launch_env': {k: env[k] for k in ('CUDA_VISIBLE_DEVICES', 'NPROC_PER_NODE', 'MASTER_PORT') if k in env},
         'purpose': 'preview' if infer else 'sft'}, indent=2), encoding='utf-8')
@@ -224,6 +239,8 @@ def main():
     if infer:
         print('Inference backend:', backend, 'Submission/write batch:', infer_batch,
               'Max new tokens:', max_new_tokens, flush=True)
+        print('Temperature:', temperature, 'Repetition penalty:',
+              args.repetition_penalty if args.repetition_penalty is not None else 'SWIFT/model default', flush=True)
         print('Preview updates after each completed batch; use --infer-batch-size 1 for per-image updates.', flush=True)
     else:
         print('Overlength training samples are DELETED, never truncated. Check encoded dataset size in log.', flush=True)
