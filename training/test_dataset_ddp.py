@@ -138,6 +138,29 @@ class DatasetDDPTests(unittest.TestCase):
         for extra in (['--temperature', '0'], ['--repetition-penalty', '1']):
             self.launch(['--gpu', '6'] + extra, success=False)
 
+    def test_official_sampling_controls(self):
+        _, info = self.launch(['--gpu', '6', '--preview', '--infer-backend', 'vllm',
+            '--temperature', '0.7', '--top-p', '0.8', '--top-k', '20', '--min-p', '0',
+            '--presence-penalty', '1.5', '--repetition-penalty', '1.0'])
+        cmd = info['argv']
+        for flag, value in (('--top_p', '0.8'), ('--top_k', '20'),
+                            ('--presence-penalty', '1.5'), ('--min-p', '0.0')):
+            self.assertEqual(cmd[cmd.index(flag)+1], value)
+        self.assertEqual(info['presence_penalty'], 1.5)
+        self.assertEqual(info['min_p'], 0)
+        for flag, value in (('--top-p', '0'), ('--top-p', 'nan'), ('--top-p', '1.1'),
+                            ('--top-k', '0'), ('--presence-penalty', '3'),
+                            ('--presence-penalty', 'inf'), ('--min-p', '-1')):
+            self.launch(['--gpu', '6', '--preview', '--infer-backend', 'vllm', flag, value], success=False)
+        for flag, value in (('--top-p', '0.8'), ('--top-k', '20'),
+                            ('--presence-penalty', '0'), ('--min-p', '0')):
+            self.launch(['--gpu', '6', flag, value], success=False)
+        for flag in ('--presence-penalty', '--min-p'):
+            self.launch(['--gpu', '6', '--preview', flag, '0'], success=False)
+        _, info = self.launch(['--gpu', '6', '--preview', '--top-p', '0.8', '--top-k', '20'], name='tf')
+        self.assertIn('--top_p', info['argv'])
+        self.assertIn('--top_k', info['argv'])
+
     def test_guards(self):
         self.launch(['--gpus', '4,4'], success=False)
         self.launch(['--gpus', '4,5', '--preview'], success=False)

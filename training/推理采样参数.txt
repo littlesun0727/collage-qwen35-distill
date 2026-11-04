@@ -16,3 +16,35 @@ A：--temperature 0 --repetition-penalty 1.0
 B：--temperature 0.2 --repetition-penalty 1.0
 C：--temperature 0 --repetition-penalty 1.05
 采样结果有随机性，重复出现的 JSON 字段也可能被惩罚；同时检查重复、漏框和 JSON 完整性。
+
+官方非 thinking 通用配置对照（新增）：
+--temperature 0.7 --top-p 0.8 --top-k 20 --min-p 0 --presence-penalty 1.5 --repetition-penalty 1.0
+出处：https://huggingface.co/Qwen/Qwen3.5-4B#best-practices
+这是通用推荐，不保证 structure.json 的准确率更高；官方提醒较大的 presence_penalty 可能导致语言混杂和表现下降。
+
+top-p / top-k 支持两个后端。presence-penalty / min-p 目前仅支持本仓库的 vLLM 推理入口。
+原因：SWIFT 4.1.0 CLI 没有这两个字段；本仓库在每次请求的 vLLM SamplingParams 上设置，不写入 site-packages 或模型配置，不影响 SFT。
+不传新增参数时不覆盖既有默认值。日志 [sampling] 显示最终生效的六个采样参数。
+范围：top-p 在(0,1]；top-k 为正整数；presence-penalty 在[-2,2]；min-p 在[0,1]。
+
+Linux 启动示例（先替换实际模型和数据路径）：
+conda activate collage-qwen35-train
+export MODEL_DIR=/data/你的模型目录/Qwen3.5-4B
+export DATA_DIR=/data/你的数据目录/collage-structure-sft-v1
+
+裸模型完整137张（脚本默认单卡6、每批1张、输出上限8192，自动创建带时间戳的输出目录）：
+GPU=6 bash training/run_preview_official.sh
+
+单图试跑（取test第一条，不会自动选择之前失败的图片）：
+GPU=6 LIMIT=1 bash training/run_preview_official.sh
+
+LoRA checkpoint评测（先填写完整checkpoint路径，会在CPU合并再交给vLLM）：
+GPU=7 ADAPTER_DIR=/实际路径/checkpoint-600 bash training/run_preview_official.sh
+
+对比裸模型结果：
+GPU=7 ADAPTER_DIR=/实际路径/checkpoint-600 BASELINE_DIR=runs/实际裸模型结果目录 bash training/run_preview_official.sh
+
+可选环境变量：INFER_BATCH_SIZE=8、MAX_NEW_TOKENS=4096、OUTPUT_DIR=runs/新的输出目录。
+脚本额外CLI参数会转发给run_lora.py，例如降低presence惩罚做对照：
+GPU=6 bash training/run_preview_official.sh --presence-penalty 0.5
+不同实验保持同一批图片、模型、图片token和输出上限；不要在正在训练的GPU上同时启动评测。

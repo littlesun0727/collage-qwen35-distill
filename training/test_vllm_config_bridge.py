@@ -3,10 +3,29 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 import unittest
 
-from vllm_infer import install_config_bridge
+from vllm_infer import install_config_bridge, install_sampling_overrides, parse_extra_args
 
 
 class ConfigBridgeTests(unittest.TestCase):
+    def test_sampling_override_reaches_request_without_changing_defaults(self):
+        class Engine:
+            def _prepare_generation_config(self, request):
+                return SimpleNamespace(temperature=request.temperature, top_p=0.8, top_k=20,
+                                       presence_penalty=0, min_p=0.1, repetition_penalty=1.0)
+        extra, remaining = parse_extra_args(['--model', '/model', '--presence-penalty', '1.5',
+                                            '--min-p', '0', '--temperature', '0.7'])
+        self.assertEqual(remaining, ['--model', '/model', '--temperature', '0.7'])
+        install_sampling_overrides(Engine, extra.presence_penalty, extra.min_p)
+        engine = Engine()
+        request = SimpleNamespace(temperature=0.7)
+        for _ in range(2):
+            params = engine._prepare_generation_config(request)
+            self.assertEqual(params.presence_penalty, 1.5)
+            self.assertEqual(params.min_p, 0)
+            self.assertEqual(params.temperature, 0.7)
+            self.assertEqual(params.top_k, 20)
+        self.assertEqual(vars(request), {'temperature': 0.7})
+
     def test_conversion_is_scoped_and_preserves_original(self):
         payload = {'text_config': {'hidden_size': 2560},
                    'vision_config': {'spatial_merge_size': 2}}

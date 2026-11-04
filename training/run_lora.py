@@ -43,6 +43,10 @@ def main():
     p.add_argument('--temperature', type=float, help='Inference only; default 0 (greedy)')
     p.add_argument('--repetition-penalty', type=float,
                    help='Inference only; 1 disables penalty; omitted preserves SWIFT/model default')
+    p.add_argument('--top-p', type=float, help='Inference only; nucleus probability in (0, 1]')
+    p.add_argument('--top-k', type=int, help='Inference only; positive candidate count')
+    p.add_argument('--presence-penalty', type=float, help='vLLM inference only; [-2, 2], 0 disables')
+    p.add_argument('--min-p', type=float, help='vLLM inference only; [0, 1], 0 disables')
     p.add_argument('--merge-lora', action='store_true', help='Merge saved adapter on CPU before inference (SWIFT export)')
     p.add_argument('--vllm-gpu-memory-utilization', type=float, help='Fraction of whole GPU memory; default 0.7')
     p.add_argument('--vllm-max-model-len', type=int, help='Total context; default max-length + max-new-tokens')
@@ -59,9 +63,21 @@ def main():
                     args.vllm_max_model_len is not None or args.vllm_enforce_eager)
     if not infer and (args.infer_backend is not None or args.infer_batch_size is not None or
                       args.max_new_tokens is not None or args.merge_lora or vllm_options or
-                      args.temperature is not None or args.repetition_penalty is not None):
+                      args.temperature is not None or args.repetition_penalty is not None or
+                      any(x is not None for x in (args.top_p, args.top_k, args.presence_penalty, args.min_p))):
         p.error('Inference options require --preview or --adapter; they cannot affect SFT')
     backend = (args.infer_backend or 'transformers') if infer else None
+    if backend != 'vllm' and (args.presence_penalty is not None or args.min_p is not None):
+        p.error('--presence-penalty and --min-p require --infer-backend vllm')
+    for name, value, low, high in (
+            ('--top-p', args.top_p, 0, 1),
+            ('--presence-penalty', args.presence_penalty, -2, 2),
+            ('--min-p', args.min_p, 0, 1)):
+        if value is not None and (not math.isfinite(value) or not low <= value <= high or
+                                  (name == '--top-p' and value == 0)):
+            p.error(f'{name} is outside its allowed range')
+    if args.top_k is not None and args.top_k < 1:
+        p.error('--top-k must be a positive integer')
     if vllm_options and backend != 'vllm':
         p.error('vLLM options require --infer-backend vllm')
     if backend == 'vllm' and args.attn_impl:
@@ -166,6 +182,13 @@ def main():
                 '--max_new_tokens', str(max_new_tokens), '--write_batch_size', str(infer_batch)]
         if args.repetition_penalty is not None:
             cmd += ['--repetition_penalty', str(args.repetition_penalty)]
+        for key in ('top_p', 'top_k'):
+            if getattr(args, key) is not None:
+                cmd += ['--' + key, str(getattr(args, key))]
+        # Consumed by our vLLM entry point, not SWIFT 4.1's CLI parser.
+        for key in ('presence_penalty', 'min_p'):
+            if getattr(args, key) is not None:
+                cmd += ['--' + key.replace('_', '-'), str(getattr(args, key))]
         if backend == 'vllm':
             # Do not inherit the training attention backend during CPU merge.
             # Model, data, precision and generation settings are explicit here.
@@ -230,6 +253,9 @@ def main():
         'max_new_tokens': max_new_tokens if infer else None,
         'temperature': temperature if infer else None,
         'repetition_penalty': args.repetition_penalty if infer else None,
+        'top_p': args.top_p if infer else None, 'top_k': args.top_k if infer else None,
+        'presence_penalty': args.presence_penalty if infer else None,
+        'min_p': args.min_p if infer else None,
         'train_count': len(records) if not infer else 0, 'validation_count': len(validation),
         'launch_env': {k: env[k] for k in ('CUDA_VISIBLE_DEVICES', 'NPROC_PER_NODE', 'MASTER_PORT') if k in env},
         'purpose': 'preview' if infer else 'sft'}, indent=2), encoding='utf-8')
