@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import signal
+import sys
 
 from dataset_io import load_split, inputs_only, assert_split_isolation, download_snapshot
 
@@ -194,6 +195,9 @@ def main():
         # Keep all checkpoints for concurrent readers; cleanup is manual after preview.
         if args.resume:
             cmd += ['--resume_from_checkpoint', str(args.resume.resolve())]
+    if backend == 'vllm':
+        # Keep the compatibility shim confined to the inference subprocess.
+        cmd = [sys.executable, str(Path(__file__).with_name('vllm_infer.py'))] + cmd[2:]
     env = os.environ.copy()
     # This is a single-node parent launcher, not a script to run inside torchrun.
     for key in ('RANK', 'LOCAL_RANK', 'WORLD_SIZE', 'LOCAL_WORLD_SIZE', 'GROUP_RANK',

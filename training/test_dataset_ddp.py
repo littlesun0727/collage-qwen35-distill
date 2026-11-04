@@ -60,6 +60,7 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index('--attn_impl')+1], 'flash_attention_2')
         self.assertFalse(any(x.startswith('--vllm') for x in cmd))
         self.assertNotIn('--infer_backend', cmd)
+        self.assertEqual(cmd[1], 'sft')
         self.assertIn('--val_dataset', cmd)
         self.assertNotIn('test.jsonl', ' '.join(cmd))
         for split, file in [('train', 'input.jsonl'), ('validation', 'validation.jsonl')]:
@@ -94,6 +95,8 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index('--load_args')+1], 'false')
         self.assertNotIn('--attn_impl', cmd)
         self.assertNotIn('--max_batch_size', cmd)
+        self.assertEqual(Path(cmd[1]).name, 'vllm_infer.py')
+        self.assertEqual(cmd[0], sys.executable)
         self.assertNotIn('NPROC_PER_NODE', info['launch_env'])
         row = json.loads((out/'input.jsonl').read_text(encoding='utf-8'))
         self.assertEqual(row['messages'], [{'role': 'user', 'content': self.prompt}])

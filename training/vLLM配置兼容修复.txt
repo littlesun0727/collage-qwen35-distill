@@ -1,0 +1,13 @@
+适用问题：SWIFT 4.1.0 / Transformers 5.5.3 / vLLM 0.19.1
+Invalid type of HuggingFace config：期望 vllm 的 Qwen3_5Config，实际为 transformers 的 Qwen3_5Config。
+
+原因：SWIFT 在创建 vLLM 引擎时临时替换 AutoConfig.from_pretrained，直接返回 Transformers 配置，绕过了 vLLM 自己注册的配置类。
+修复：run_lora.py 的 vLLM 评测现在通过 vllm_infer.py 启动。在原 SWIFT 配置上下文中，仅将完整 Qwen3.5 配置及其文本、视觉子配置转换成 vLLM 类型；保留原始配置，不修改模型文件或 site-packages。
+训练与 Transformers 推理启动路径不变，无需重装依赖。直接执行 swift infer 不会自动获得仓库补丁，请通过 training/run_lora.py 启动。
+
+拉取后，原评测命令保留，只把 --limit 改成 1、--infer-batch-size 改成 1，并指定一个不存在的 --output 目录先验证。
+日志应该出现：[compat] Qwen3.5 config converted for vLLM (text + vision)
+确认单图正常后，恢复 --limit 137 --infer-batch-size 8，使用另一个新输出目录。
+
+验证范围：CPU 回归测试；使用本地官方 4B 配置、Transformers 5.5.3 和 vLLM 0.19.1 官方配置类源码验证转换类型、嵌套配置与关键模型字段、原配置未被修改。
+本地 Windows 未运行 Linux vLLM GPU 引擎，完整 A100 推理仍需远程验证。
