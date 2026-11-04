@@ -5,6 +5,7 @@ import html
 import json
 import math
 import re
+import time
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps
@@ -67,18 +68,19 @@ def drawable_target(text):
     return {'objects': objects}, notes
 
 
-def load_results(run, cache=None, partial=False):
+def load_results(run, cache=None, partial=False, progress=False):
     rows = []
     path = run / 'predictions.jsonl'
     if not path.exists() and partial:
         return rows
     # A writer can be midway through a UTF-8 character or JSON line.
+    if progress:
+        print(f'[PREVIEW] 读取结果文件：{path}', flush=True)
     data = path.read_bytes()
     if partial:
         data = data[:data.rfind(b'\n') + 1]
-    for line in data.decode('utf-8').splitlines():
-        if not line.strip():
-            continue
+    lines = [line for line in data.decode('utf-8').splitlines() if line.strip()]
+    for number, line in enumerate(lines, 1):
         if cache is not None and line in cache:
             rows.append(cache[line])
             continue
@@ -91,9 +93,14 @@ def load_results(run, cache=None, partial=False):
         if not isinstance(reference, str) or not reference:
             raise ValueError('Expected one image path in each ms-swift result')
         source = Path(reference)
+        if progress:
+            print(f'[PREVIEW] 读取图片 {number}/{len(lines)}：{source}', flush=True)
         with Image.open(source) as raw:
             im = ImageOps.exif_transpose(raw).convert('RGB')
             digest = hashlib.sha256(str(im.size).encode() + im.tobytes()).hexdigest()
+            # Hash full pixels for baseline identity, then retain only display pixels.
+            # This does not alter model input, raw predictions or exported coordinates.
+            im.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
         response = row.get('response')
         error, target, wrappers = '', None, []
         text = ''
@@ -104,6 +111,8 @@ def load_results(run, cache=None, partial=False):
             target = validate_target(text)
         except (ValueError, TypeError, KeyError) as exc:
             error = str(exc)
+            if error == 'Duplicate IDs or inconsistent layer_order':
+                error = '对象 ID 重复或 layer_order 不一致；所有可用 bbox 仍分别绘制'
             target = None
         drawing, drawing_notes = drawable_target(text)
         parsed = {'source': source, 'image': im, 'digest': digest, 'response': response,
@@ -131,8 +140,11 @@ def draw_boxes(image, target):
 
 
 def build_report(run, baseline=None, *, partial=False, expected=None, cache=None, quiet=False, running=None):
+    started = time.monotonic()
     run = Path(run).resolve()
-    rows = load_results(run, cache=cache, partial=partial)
+    if not quiet:
+        print('[PREVIEW] 开始生成报告（仅 CPU 画图，不加载模型）', flush=True)
+    rows = load_results(run, cache=cache, partial=partial, progress=not quiet)
     if not rows and not partial:
         raise ValueError('No inference results')
     old = {}
@@ -147,7 +159,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
         prior_cmd = json.loads((baseline / 'command.json').read_text(encoding='utf-8'))
         if current_cmd['image_tokens'] != prior_cmd['image_tokens']:
             raise ValueError('Baseline image-token budget differs')
-        old = {r['digest']: r for r in load_results(baseline, cache=cache)}
+        old = {r['digest']: r for r in load_results(baseline, cache=cache, progress=not quiet)}
     assets = run / 'preview-assets'
     assets.mkdir(exist_ok=True)
     cards = []
@@ -157,7 +169,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             return '<div>没有对应的基线图片</div>'
         if cache is None or not (assets / name).exists():
             picture = draw_boxes(row['image'], row['drawing'])
-            picture.save(assets / name)
+            picture.save(assets / name, compress_level=1)
         status = f'已绘制 {len(row["drawing"]["objects"])} 个框。'
         status += '基础结构检查通过' if row['target'] is not None else '结构提示（不阻止画框）：' + row['error']
         if row['drawing_notes']:
@@ -167,8 +179,11 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
         return (f'<div><h3>{label}</h3><img src="preview-assets/{name}"><p>{html.escape(status)}</p>'
                 f'<details><summary>查看模型原始 JSON / 回复</summary><pre>{html.escape(str(row["response"]))}</pre></details></div>')
     for i, row in enumerate(rows):
+        if not quiet:
+            print(f'[PREVIEW] 绘制 {i + 1}/{len(rows)}：{row["source"].name} '
+                  f'（{len(row["drawing"]["objects"])} 个可用框）', flush=True)
         if cache is None or not (assets / f'{i}-original.png').exists():
-            row['image'].save(assets / f'{i}-original.png')
+            row['image'].save(assets / f'{i}-original.png', compress_level=1)
         valid += row['target'] is not None
         cells = f'<div><h3>原图</h3><img src="preview-assets/{i}-original.png"></div>'
         if baseline:
@@ -189,13 +204,14 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             f'<h1>LoRA 预测预览</h1><p>{progress}。' + ('推理进行中，每10秒刷新。' if running else '推理已结束；是否全部成功请核对完成数量和日志。') +
             f'</p><p>基础结构检查通过 {valid}/{len(rows)}。'
             '画框独立于结构检查：能读取的框尽量显示，坏框单独跳过；显示调整不修改原始回复。'
+            '预览图最长边限制为1600像素，不改变推理输入或 bbox 坐标。'
             '检查通过比例不是准确率；查看照片框、装饰、frame 关联和 layer_order 的 JSON。'
             '若使用训练图片，只能检查拟合，不能证明泛化。</p>' + ''.join(cards))
     tmp = run / 'preview.html.tmp'
     tmp.write_text(page, encoding='utf-8')
     tmp.replace(run / 'preview.html')
     if not quiet:
-        print('PREVIEW:', run / 'preview.html')
+        print(f'PREVIEW: {run / "preview.html"}（耗时 {time.monotonic() - started:.1f} 秒）', flush=True)
     return len(rows)
 
 

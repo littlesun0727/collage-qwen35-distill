@@ -2,12 +2,41 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import io
+from contextlib import redirect_stdout
 
 from PIL import Image
 from preview_report import build_report, drawable_target, load_results
 
 
 class LenientPreviewTests(unittest.TestCase):
+    def test_duplicate_ids_keep_both_boxes_and_report_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / 'image.png'
+            Image.new('RGB', (2000, 1000), 'white').save(image)
+            response = json.dumps({'background': {'type': 'transparent'}, 'objects': [
+                {'id': 'photo_1', 'kind': 'photo', 'bbox': [100, 100, 400, 400]},
+                {'id': 'photo_1', 'kind': 'photo', 'bbox': [600, 600, 900, 900]}],
+                'layer_order': ['photo_1', 'photo_1']})
+            (root / 'predictions.jsonl').write_text(json.dumps({
+                'images': [str(image)], 'response': response})+'\n')
+            row = load_results(root)[0]
+            self.assertIsNone(row['target'])
+            self.assertEqual(len(row['drawing']['objects']), 2)
+            self.assertEqual(row['image'].size, (1600, 800))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                build_report(root)
+            self.assertIn('读取图片 1/1', output.getvalue())
+            self.assertIn('绘制 1/1', output.getvalue())
+            page = (root / 'preview.html').read_text(encoding='utf-8')
+            self.assertIn('已绘制 2 个框', page)
+            self.assertIn('对象 ID 重复', page)
+            with Image.open(root / 'preview-assets/0-current.png') as rendered:
+                self.assertNotEqual(rendered.getpixel((160, 200)), (255, 255, 255))
+                self.assertNotEqual(rendered.getpixel((960, 600)), (255, 255, 255))
+
     def test_bad_structure_still_draws_good_objects(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
