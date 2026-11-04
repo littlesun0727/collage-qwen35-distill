@@ -35,11 +35,18 @@ def make_plan(config, gpu, output_root, batch_size=8):
                '--top-p', '0.8', '--top-k', '20', '--min-p', '0',
                '--presence-penalty', '1.5', '--repetition-penalty', '1.0',
                '--output', str(out)]
+        merge_lora = job.get('merge_lora', False)
+        if not isinstance(merge_lora, bool):
+            raise ValueError(f'{name}: merge_lora must be a JSON boolean')
+        if merge_lora and not job.get('adapter'):
+            raise ValueError(f'{name}: merge_lora requires an adapter')
         if job.get('adapter'):
             adapter = Path(job['adapter']).resolve()
             if not (adapter / 'adapter_config.json').is_file():
                 raise ValueError(f'Missing adapter_config.json for {name}: {adapter}')
-            cmd += ['--adapter', str(adapter), '--merge-lora']
+            cmd += ['--adapter', str(adapter)]
+            if merge_lora:
+                cmd += ['--merge-lora']
         else:
             cmd += ['--preview']
         baseline = job.get('compare_to')

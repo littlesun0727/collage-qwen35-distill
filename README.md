@@ -91,7 +91,7 @@ GPU=7 ADAPTER_DIR=/实际路径/checkpoint-600 \
   bash training/run_preview_official.sh
 ```
 
-脚本先在 CPU 合并 LoRA，再交给 vLLM；不覆盖原始权重或 adapter。BASELINE_DIR 可省略。对比应保持数据版本、prompt、图片预算、输出上限、采样参数和后端一致。
+脚本默认让 vLLM 直接挂载 LoRA，不合并或生成完整模型副本。确实需要合并时，才在 shell 命令末尾显式追加 `--merge-lora`。BASELINE_DIR 可省略。对比应保持数据版本、prompt、图片预算、输出上限、采样参数和后端一致。
 
 固定137张 test 用作最终回归；调参和 checkpoint 选择用 validation。可在脚本末尾追加 `--preview-split validation --limit 32`，基线也使用相同验证图片。
 
@@ -258,7 +258,7 @@ python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --dr
 python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --output-root runs/eval-checkpoints
 ```
 
-清单见 [eval_queue.example.json](training/eval_queue.example.json)。没有 `adapter` 的任务跑裸模型；有 `adapter` 的任务先合并 LoRA 再评测。每个任务可覆盖 `model`，必须与 adapter 的基础模型对应。`compare_to` 填前面任务的名字，例如 `base`，即可生成并排对比。
+清单见 [eval_queue.example.json](training/eval_queue.example.json)。没有 `adapter` 的任务跑裸模型；有 `adapter` 的任务默认直接挂载 LoRA。仅在明确需要时，给该任务添加 `"merge_lora": true` 才合并。每个任务可覆盖 `model`，必须与 adapter 的基础模型对应。`compare_to` 填前面任务的名字，例如 `base`，即可生成并排对比。
 
 每个任务保存到 `output-root/任务名/`，队列状态见 `queue-status.json`。默认失败即停止；加 `--continue-on-error` 可继续独立任务，基线失败时跳过依赖它的任务。仅使用已完整保存的 checkpoint，不会等待训练生成未来的 checkpoint。新一轮使用新 output-root。
 

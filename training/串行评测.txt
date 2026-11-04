@@ -13,7 +13,8 @@ python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --ou
 队列按 jobs 顺序逐个启动，不并发。每个任务都调用独立的 run_lora.py 进程；前一任务结束后才开始下一个。
 默认：test最多137条、infer-batch-size=8、图片预算1024、输入12288、输出8192、官方非thinking通用采样配置。
 队列不读取单次Bash脚本的MODEL_DIR等环境变量，路径来自JSON清单，GPU来自--gpu。
-任务没有 adapter 就是裸模型；有 adapter 就先合并LoRA再评测。
+任务没有 adapter 就是裸模型；有 adapter 默认直接挂载 LoRA，不合并。
+仅在明确需要时，在该任务中添加 "merge_lora": true 才合并；默认 false。
 model 可在每个任务中单独指定，适合不同基础模型；LoRA任务的model必须是该adapter实际对应的基础模型。
 compare_to 可省略；填写时必须是清单中更早任务的name，例如base，不是目录路径。
 仅把同一基础模型的LoRA与对应裸模型对比。不同模型家族也必须先确认当前脚本/模板兼容。

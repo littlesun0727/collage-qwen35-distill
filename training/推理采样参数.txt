@@ -38,7 +38,7 @@ GPU=6 bash training/run_preview_official.sh
 单图试跑（取test第一条，不会自动选择之前失败的图片）：
 GPU=6 LIMIT=1 bash training/run_preview_official.sh
 
-LoRA checkpoint评测（先填写完整checkpoint路径，会在CPU合并再交给vLLM）：
+LoRA checkpoint评测（先填写完整checkpoint路径，默认由vLLM直接挂载，不合并）：
 GPU=7 ADAPTER_DIR=/实际路径/checkpoint-600 bash training/run_preview_official.sh
 
 对比裸模型结果：

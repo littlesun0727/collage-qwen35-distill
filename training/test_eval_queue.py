@@ -21,7 +21,18 @@ class QueueTests(unittest.TestCase):
             plan = make_plan(config, '4', out)
             self.assertIn('--preview', plan[0]['argv'])
             self.assertNotIn('--adapter', plan[0]['argv'])
-            self.assertIn('--merge-lora', plan[1]['argv'])
+            self.assertIn('--adapter', plan[1]['argv'])
+            self.assertNotIn('--merge-lora', plan[1]['argv'])
+            config['jobs'][1]['merge_lora'] = True
+            self.assertIn('--merge-lora', make_plan(config, '4', out)[1]['argv'])
+            config['jobs'][1]['merge_lora'] = 'false'
+            with self.assertRaisesRegex(ValueError, 'JSON boolean'):
+                make_plan(config, '4', out)
+            config['jobs'][1].pop('merge_lora')
+            config['jobs'][0]['merge_lora'] = True
+            with self.assertRaisesRegex(ValueError, 'requires an adapter'):
+                make_plan(config, '4', out)
+            config['jobs'][0].pop('merge_lora')
             self.assertNotIn('--preview', plan[1]['argv'])
             self.assertIn(str(out / 'base'), plan[1]['argv'])
             cmd = plan[1]['argv']

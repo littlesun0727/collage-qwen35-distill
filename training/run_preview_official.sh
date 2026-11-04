@@ -23,7 +23,7 @@ args=(
   --output "$OUTPUT_DIR"
 )
 if [[ -n "${ADAPTER_DIR:-}" ]]; then
-  args+=(--adapter "$ADAPTER_DIR" --merge-lora)
+  args+=(--adapter "$ADAPTER_DIR")
 else
   args+=(--preview)
 fi
