@@ -57,6 +57,9 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index('--max_steps')+1], '-1')
         self.assertEqual(cmd[cmd.index('--num_train_epochs')+1], '1.0')
         self.assertEqual(cmd[cmd.index('--split_dataset_ratio')+1], '0')
+        self.assertEqual(cmd[cmd.index('--attn_impl')+1], 'flash_attention_2')
+        self.assertFalse(any(x.startswith('--vllm') for x in cmd))
+        self.assertNotIn('--infer_backend', cmd)
         self.assertIn('--val_dataset', cmd)
         self.assertNotIn('test.jsonl', ' '.join(cmd))
         for split, file in [('train', 'input.jsonl'), ('validation', 'validation.jsonl')]:
@@ -73,6 +76,41 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertNotIn('NPROC_PER_NODE', info['launch_env'])
         self.assertEqual(info['split'], 'validation')
         self.assertEqual(info['argv'][info['argv'].index('--write_batch_size') + 1], '1')
+        self.assertEqual(info['argv'][info['argv'].index('--attn_impl') + 1], 'sdpa')
+
+    def test_vllm_batch_context_and_adapter(self):
+        adapter = self.root / 'checkpoint-10'
+        adapter.mkdir()
+        (adapter / 'adapter_config.json').write_text('{}')
+        out, info = self.launch(['--gpu', '6', '--adapter', str(adapter), '--merge-lora',
+            '--infer-backend', 'vllm', '--preview-split', 'test', '--max-new-tokens', '4096'])
+        cmd = info['argv']
+        self.assertEqual(cmd[cmd.index('--infer_backend')+1], 'vllm')
+        self.assertEqual(cmd[cmd.index('--write_batch_size')+1], '8')
+        self.assertEqual(cmd[cmd.index('--vllm_max_num_seqs')+1], '8')
+        self.assertEqual(cmd[cmd.index('--vllm_max_model_len')+1], '16384')
+        self.assertEqual(cmd[cmd.index('--adapters')+1], str(adapter.resolve()))
+        self.assertIn('--merge_lora', cmd)
+        self.assertEqual(cmd[cmd.index('--load_args')+1], 'false')
+        self.assertNotIn('--attn_impl', cmd)
+        self.assertNotIn('--max_batch_size', cmd)
+        self.assertNotIn('NPROC_PER_NODE', info['launch_env'])
+        row = json.loads((out/'input.jsonl').read_text(encoding='utf-8'))
+        self.assertEqual(row['messages'], [{'role': 'user', 'content': self.prompt}])
+        self.assertEqual(info['split'], 'test')
+
+    def test_single_gpu_training_override_and_inference_guards(self):
+        _, info = self.launch(['--gpu', '4', '--attn-impl', 'sdpa'])
+        cmd = info['argv']
+        self.assertEqual(info['launch_env']['NPROC_PER_NODE'], '1')
+        self.assertEqual(cmd[cmd.index('--attn_impl')+1], 'sdpa')
+        self.assertNotIn('--ddp_find_unused_parameters', cmd)
+        for extra in (['--infer-backend', 'vllm'], ['--max-new-tokens', '512'], ['--merge-lora']):
+            self.launch(['--gpu', '4'] + extra, success=False)
+        for extra in (['--infer-batch-size', '0'], ['--vllm-gpu-memory-utilization', '1.1'],
+                      ['--vllm-max-model-len', '8192'], ['--attn-impl', 'flash_attention_2']):
+            self.launch(['--gpu', '4', '--preview', '--infer-backend', 'vllm'] + extra, success=False)
+        self.launch(['--gpu','4','--preview','--merge-lora'], success=False)
 
     def test_guards(self):
         self.launch(['--gpus', '4,4'], success=False)

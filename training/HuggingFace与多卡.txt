@@ -54,7 +54,8 @@ python training/run_lora.py --model /模型目录/Qwen3.5-4B --gpu 6 --data /数
 不执行HF数据集中的Python文件，使用本仓库的数据读取代码。
 
 加速：
-默认仍是SDPA，可用 --attn-impl flash_attention_2 进行对照；它不能代替FLA/causal-conv1d。
+新训练默认 flash_attention_2，可用 --attn-impl sdpa 显式回退；它不能代替FLA/causal-conv1d。
+已有任务续跑请显式保留原 attention 设置。完整训练/vLLM评测/对比流程见“训练评测对比指南.txt”。
 batch和累积都可调；先确认线性注意力加速生效，再扩大batch。
 超长样本仍删除而不截断，请检查日志中编码后样本数量；--max-length 默认12288。
 保留所有checkpoint以支持并行预览，定期自行清理不再需要的旧文件。

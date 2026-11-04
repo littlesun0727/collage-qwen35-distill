@@ -1,0 +1,125 @@
+Qwen3.5-4B：训练、vLLM 评测、checkpoint 对比
+分支：feat/vllm-eval-ddp-fa2
+
+一、已有训练怎么处理
+正在运行的训练不用停。此更新只改变之后启动的进程，不修改模型权重或训练环境。
+原 requirements.txt 没有加入 vLLM，也没有自动安装/升级依赖。
+新训练默认 flash_attention_2；旧训练的续跑若原来用 SDPA，显式加 --attn-impl sdpa。
+训练环境需要已安装能正常导入的 flash-attn；仅选该参数不会自动安装。
+FlashAttention 2 只加速普通 attention，linear attention 的 FLA/causal-conv1d 是另一条路径。
+
+二、先填写路径（以下均为 Linux/Bash，在代码仓根目录运行）
+MODEL_DIR=/data/你的模型目录/Qwen3.5-4B
+DATA_DIR=/data/你的数据目录/collage-structure-sft-v1
+
+DATA_DIR 是已经完整下载的数据仓目录，里面包含 train.jsonl、validation.jsonl、test.jsonl 和图片。
+下面的 GPU 4、5、6 都是示例，必须换成你获准使用的物理卡号。
+数据训练只读 train 和 validation；test 不会参与训练。
+
+三、单卡训练
+conda activate collage-qwen35-train
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 4 --epochs 1 --batch-size 1 --grad-accum 4 --save-steps 50 --eval-steps 50 --output runs/train-single
+
+默认：BF16、LoRA rank16/alpha32、冻结视觉编码器与对齐层、训练 attention=flash_attention_2。
+默认 max-length=12288，image-tokens=1024，学习率 5e-5，不启用 packing。
+需要 SDPA 时在命令末尾加 --attn-impl sdpa。
+使用新的 output 目录；已存在目录会拒绝，避免覆盖。
+
+四、多卡训练（单机 DDP，不是张量并行）
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpus 4,5 --epochs 1 --batch-size 1 --grad-accum 2 --save-steps 50 --eval-steps 50 --master-port 29501 --output runs/train-ddp
+
+脚本自动设置 CUDA_VISIBLE_DEVICES=4,5 和 NPROC_PER_NODE=2，交给 SWIFT 启动 DDP。
+直接 python 启动，不要再套 torchrun。每卡保存完整基础模型，多卡不会合并显存容量。
+有效 batch = 卡数 × batch-size × grad-accum。
+上面的单卡与双卡例子有效 batch 都是 4；若双卡 grad-accum 仍为 4，有效 batch 就是 8。
+同时启动多份训练时，使用不同 master-port、不同 GPU 和不同 output。
+多机训练不在本次支持范围内。
+
+恢复已有训练（保持原数据、GPU规模、batch、attention、目标总步数等设置）：
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 4 --attn-impl sdpa --max-steps 1000 --resume /实际训练目录/checkpoint-500 --output runs/train-resumed
+
+上例 SDPA 仅适用于原任务使用 SDPA；原任务使用 FA2 就改为 flash_attention_2。
+max-steps=1000 是目标总步数，不是再训练1000步。
+
+五、评测环境：别改正在训练的环境
+--infer-backend vllm 调用的仍然是 swift infer，只是内部使用 VllmEngine，不启动 API 服务。
+同一个评测环境必须同时具有 SWIFT 和 vLLM。仅之前 vllm serve 跑通，不保证 SWIFT 的处理器路径也兼容。
+保留旧训练环境和旧 vLLM 服务环境。建议在联网 Linux 准备一份独立评测环境，再搬到离线机器。
+
+与你现有版本接近的准备方式（候选组合，必须先做后面的单图验证）：
+conda create -n collage-qwen35-eval --clone collage-qwen35-train -y
+conda activate collage-qwen35-eval
+python -m pip install "vllm==0.17.1"
+python -m pip install "transformers==5.2.0"
+python -m pip show ms-swift vllm torch transformers
+
+重要兼容说明：vLLM 0.17.1 的包元数据要求 transformers<5，而 SWIFT 的 Qwen3.5 处理器/模型路径需要5.2。
+SWIFT Qwen3.5 官方指南采用先安装 vLLM、再覆盖 Transformers 的方式，同时明确列出兼容问题。
+因此上述组合会有 pip 依赖冲突提示，不能称为 pip check 全通过的组合，也不能保证远程机器运行成功。
+不要在原训练环境执行这些安装命令，不要用不受约束的 pip install -U vllm 自动换整套 Torch。
+如果已有一份同时跑通 SWIFT + vLLM + Qwen3.5 的环境，直接使用它，不必重装。
+离线机器不能直接执行联网 pip 安装；应先准备相同 Linux/Python/CUDA 对应的完整环境或离线依赖。
+参考：https://swift.readthedocs.io/en/v4.0/BestPractices/Qwen3_5-Best-Practice.html
+兼容问题：https://github.com/modelscope/ms-swift/issues/8254
+
+六、先跑原始模型一张，确认 vLLM 路径正常
+conda activate collage-qwen35-eval
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 6 --preview --infer-backend vllm --preview-split test --limit 1 --infer-batch-size 1 --max-new-tokens 4096 --vllm-gpu-memory-utilization 0.7 --output runs/base-vllm-smoke
+
+新进程日志应显示 infer_backend='vllm'。先确认正常输出，再跑完整137张。
+不要给 vLLM 命令加 --attn-impl；它自行选择计算内核。训练的默认 FA2 不会传给 vLLM。
+vllm-gpu-memory-utilization 是整张卡的比例，0.7 在80GB卡上约为56GB预算，并不是剩余显存的70%。
+评测卡应与正在训练的卡分开。此参数不能隔离其他进程，也不能保证共享显存下绝不冲突。
+如启动 OOM，先降低 --infer-batch-size，例如2；可加 --vllm-enforce-eager 减少 CUDA graph 开销，但可能减速。
+本机 Windows 4080 未验证 vLLM；此路线面向你的 Linux A100。
+
+七、原始模型完整基线（固定137张 test）
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 6 --preview --infer-backend vllm --preview-split test --limit 137 --infer-batch-size 8 --max-new-tokens 4096 --vllm-gpu-memory-utilization 0.7 --output runs/base-vllm-test137
+
+limit 只是最多读取多少条，不会自己挑出测试集；必须显式使用 --preview-split test。
+默认图片预算仍为1024，prompt保持数据集原文。当前批内完成后一起落盘，约每8张更新报告。
+若希望每张立即落盘，设 --infer-batch-size 1，但会损失批处理吞吐。
+max-length 在推理中是输入上限；vllm-max-model-len 是输入+输出总上限。
+脚本默认总上限=max-length+max-new-tokens，因此本例是12288+4096=16384。
+输出上限只负责限长；达到上限的结果应检查是否截断，不能当成完整预测。
+
+八、训练中途或结束后，评测 checkpoint 并与基线对比
+CKPT_DIR=/实际训练输出目录/checkpoint-500
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 6 --adapter "$CKPT_DIR" --merge-lora --infer-backend vllm --preview-split test --limit 137 --infer-batch-size 8 --max-new-tokens 4096 --vllm-gpu-memory-utilization 0.7 --compare-to runs/base-vllm-test137 --output runs/step500-vllm-test137
+
+只选择已保存完毕的 checkpoint，不要选正在写入的 checkpoint。
+--merge-lora 使用 SWIFT 在CPU上合并，输出到 checkpoint-500-merged，再由vLLM加载完整模型。
+它不覆盖原始模型或 adapter，不改变训练进程；首次合并需要CPU内存、磁盘空间和额外时间。
+SWIFT发现同名 -merged 目录会直接复用；不要让不同权重共用一个 checkpoint 路径或使用未完成的合并目录。
+每个新 checkpoint 分别产生一个 -merged 目录，约一份完整模型大小。清理时确认没有评测进程正在读取。
+若你已确认当前vLLM支持这个adapter的全部目标模块，可以去掉 --merge-lora 直接加载LoRA。
+原始模型能跑通，不等于所有线性注意力LoRA层都能直接加载；直接加载报不支持时使用合并路径。
+
+九、怎么看、怎么对比
+打开 runs/step500-vllm-test137/preview.html：原图、基线、当前 checkpoint 并排。
+报告会处理空 think 标签和 JSON 围栏，但保留原始输出；真正损坏的 JSON 仍报错。
+重点查看照片是否漏检/误检、bbox边界、frame关联、layer_order。检查通过数量不是识别准确率。
+对照必须使用同一份数据版本、相同prompt、图片token预算、输出上限和推理后端。
+暂未提供IoU或对象匹配的量化准确率，本页面是人工对比工具。
+log中的 tokens/s 和 runtime 用于观察速度，首次模型加载/编译与稳定推理速度应分别看。
+
+只重新生成已有对比报告，不需要GPU：
+python training/preview_report.py --run runs/step500-vllm-test137 --baseline runs/base-vllm-test137
+
+十、产物
+command.json：实际 SWIFT 参数、GPU、后端、批大小、数据来源。
+input.jsonl：本次输入（已去掉标准答案）。
+run.log：加载、推理速度和错误。
+predictions.jsonl：原始输出，保留未通过结构检查的结果。
+preview.html / preview-assets：图片对比和提取后的结构。
+
+十一、旧 Transformers 路线仍可用
+python training/run_lora.py --model "$MODEL_DIR" --data "$DATA_DIR" --gpu 6 --preview --preview-split test --limit 1 --attn-impl sdpa --output runs/base-transformers-check
+
+不写 --infer-backend 时仍使用 Transformers，默认 SDPA、每张落盘，最大输出8192。
+训练与推理参数分开：--infer-backend 等推理参数不能传入训练命令。
+--dry-run 可检查生成命令，不加载模型、不要求安装vLLM，但仍需模型config、数据和图片存在，且会写一个新输出目录。
+
+十二、这次验证范围
+已做CPU回归测试：单卡/多卡DDP命令、数据隔离、训练参数不混入推理、vLLM批量提交与长度预算、LoRA合并参数、预览解析。
+没有在Linux A100上实跑vLLM或多卡训练；单图vLLM验证是远程启用前必做的一步。

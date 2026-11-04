@@ -27,13 +27,21 @@ def main():
     p.add_argument('--batch-size', type=int, default=1, help='Per-device micro batch')
     p.add_argument('--grad-accum', type=int, default=4)
     p.add_argument('--learning-rate', type=float, default=5e-5)
-    p.add_argument('--attn-impl', choices=['sdpa', 'flash_attention_2', 'eager'], default='sdpa')
+    p.add_argument('--attn-impl', choices=['sdpa', 'flash_attention_2', 'eager'],
+                   help='Default: flash_attention_2 for SFT, sdpa for Transformers preview; not used by vLLM')
     p.add_argument('--master-port', type=int, default=29500)
     p.add_argument('--resume', type=Path, help='Resume full trainer state from checkpoint')
     p.add_argument('--max-length', type=int, default=12288)
     p.add_argument('--image-tokens', type=int, default=1024)
     p.add_argument('--adapter', type=Path, help='If supplied, run inference instead of training')
     p.add_argument('--preview', action='store_true', help='Preview original model without adapter')
+    p.add_argument('--infer-backend', choices=['transformers', 'vllm'], help='Preview only; default transformers')
+    p.add_argument('--infer-batch-size', type=int, help='Preview submission/write batch; default 1 (Transformers), 8 (vLLM)')
+    p.add_argument('--max-new-tokens', type=int, help='Preview output limit; default 8192')
+    p.add_argument('--merge-lora', action='store_true', help='Merge saved adapter on CPU before inference (SWIFT export)')
+    p.add_argument('--vllm-gpu-memory-utilization', type=float, help='Fraction of whole GPU memory; default 0.7')
+    p.add_argument('--vllm-max-model-len', type=int, help='Total context; default max-length + max-new-tokens')
+    p.add_argument('--vllm-enforce-eager', action='store_true', help='Skip vLLM CUDA graphs to reduce memory use')
     p.add_argument('--images', type=Path, help='Directory of fixed preview images, not training data')
     p.add_argument('--limit', type=int, default=4)
     p.add_argument('--preview-split', choices=['train', 'validation', 'test'],
@@ -42,6 +50,29 @@ def main():
     p.add_argument('--dry-run', action='store_true')
     args = p.parse_args()
     infer = bool(args.adapter or args.preview)
+    vllm_options = (args.vllm_gpu_memory_utilization is not None or
+                    args.vllm_max_model_len is not None or args.vllm_enforce_eager)
+    if not infer and (args.infer_backend is not None or args.infer_batch_size is not None or
+                      args.max_new_tokens is not None or args.merge_lora or vllm_options):
+        p.error('Inference options require --preview or --adapter; they cannot affect SFT')
+    backend = (args.infer_backend or 'transformers') if infer else None
+    if vllm_options and backend != 'vllm':
+        p.error('vLLM options require --infer-backend vllm')
+    if backend == 'vllm' and args.attn_impl:
+        p.error('--attn-impl controls Transformers, not vLLM; omit it for vLLM inference')
+    if args.merge_lora and not args.adapter:
+        p.error('--merge-lora requires --adapter pointing to a completed checkpoint')
+    attn_impl = args.attn_impl or ('sdpa' if infer else 'flash_attention_2')
+    infer_batch = args.infer_batch_size if args.infer_batch_size is not None else (8 if backend == 'vllm' else 1)
+    max_new_tokens = args.max_new_tokens if args.max_new_tokens is not None else 8192
+    vllm_memory = args.vllm_gpu_memory_utilization if args.vllm_gpu_memory_utilization is not None else 0.7
+    vllm_length = args.vllm_max_model_len if args.vllm_max_model_len is not None else args.max_length + max_new_tokens
+    if infer_batch < 1 or max_new_tokens < 1:
+        p.error('Inference batch size and max-new-tokens must be positive')
+    if not 0 < vllm_memory <= 1:
+        p.error('vLLM GPU memory utilization must be in (0, 1]')
+    if backend == 'vllm' and vllm_length < args.max_length + max_new_tokens:
+        p.error('vLLM context must cover max-length (prompt cap) + max-new-tokens; lower those caps or increase context')
     if args.epochs is None and args.max_steps is None:
         args.max_steps = 10
     gpu_ids = [part.strip() for part in args.gpu.split(',')]
@@ -108,15 +139,32 @@ def main():
         val_path.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in validation), encoding='utf-8')
     cmd = [executable or 'swift', 'infer' if infer else 'sft',
            '--model', str(model), '--use_hf', 'true', '--torch_dtype', 'bfloat16',
-           '--attn_impl', args.attn_impl, '--max_length', str(args.max_length),
+           '--max_length', str(args.max_length),
            '--dataset_num_proc', '1']
+    if backend != 'vllm':
+        cmd += ['--attn_impl', attn_impl]
     if infer:
         if args.adapter:
             cmd += ['--adapters', str(args.adapter.resolve())]
-        cmd += ['--infer_backend', 'transformers',
+        if args.merge_lora:
+            cmd += ['--merge_lora', 'true']
+        cmd += ['--infer_backend', backend,
                 '--val_dataset', str(dataset), '--result_path', str(out / 'predictions.jsonl'),
                 '--enable_thinking', 'false', '--stream', 'false', '--temperature', '0',
-                '--max_new_tokens', '8192', '--max_batch_size', '1', '--write_batch_size', '1']
+                '--max_new_tokens', str(max_new_tokens), '--write_batch_size', str(infer_batch)]
+        if backend == 'vllm':
+            # Do not inherit the training attention backend during CPU merge.
+            # Model, data, precision and generation settings are explicit here.
+            cmd += ['--load_args', 'false',
+                    '--vllm_gpu_memory_utilization', str(vllm_memory),
+                    '--vllm_max_model_len', str(vllm_length),
+                    '--vllm_max_num_seqs', str(infer_batch),
+                    '--vllm_tensor_parallel_size', '1',
+                    '--vllm_limit_mm_per_prompt', '{"image": 1, "video": 0}']
+            if args.vllm_enforce_eager:
+                cmd += ['--vllm_enforce_eager', 'true']
+        else:
+            cmd += ['--max_batch_size', str(infer_batch)]
     else:
         cmd += ['--dataset', str(dataset), '--split_dataset_ratio', '0',
                 '--tuner_type', 'lora', '--target_modules', 'all-linear',
@@ -159,15 +207,22 @@ def main():
         env.update(NPROC_PER_NODE=str(world_size), NNODES='1', NODE_RANK='0',
                    MASTER_ADDR='127.0.0.1', MASTER_PORT=str(args.master_port))
     (out / 'command.json').write_text(json.dumps({'argv': cmd, 'gpu': args.gpu,
-        'world_size': world_size, 'effective_batch_size': world_size * args.batch_size * args.grad_accum,
+        'world_size': world_size, 'effective_batch_size': None if infer else world_size * args.batch_size * args.grad_accum,
         'image_tokens': args.image_tokens, 'source': provenance, 'split': split,
+        'infer_backend': backend, 'infer_batch_size': infer_batch if infer else None,
+        'max_new_tokens': max_new_tokens if infer else None,
         'train_count': len(records) if not infer else 0, 'validation_count': len(validation),
         'launch_env': {k: env[k] for k in ('CUDA_VISIBLE_DEVICES', 'NPROC_PER_NODE', 'MASTER_PORT') if k in env},
         'purpose': 'preview' if infer else 'sft'}, indent=2), encoding='utf-8')
     print('Samples:', len(records), 'Validation:', len(validation), 'Output:', out, flush=True)
     if not infer:
         print('GPUs:', world_size, 'Effective batch:', world_size * args.batch_size * args.grad_accum, flush=True)
-    print('Overlength training samples are DELETED, never truncated. Check encoded dataset size in log.', flush=True)
+    if infer:
+        print('Inference backend:', backend, 'Submission/write batch:', infer_batch,
+              'Max new tokens:', max_new_tokens, flush=True)
+        print('Preview updates after each completed batch; use --infer-batch-size 1 for per-image updates.', flush=True)
+    else:
+        print('Overlength training samples are DELETED, never truncated. Check encoded dataset size in log.', flush=True)
     if args.dry_run:
         print(json.dumps(cmd, indent=2))
         return
