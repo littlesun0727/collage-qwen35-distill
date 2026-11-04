@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import re
 from pathlib import Path
 
@@ -24,6 +25,46 @@ def unwrap_response(response):
         text = fence.group(1).strip()
         wrappers.append('JSON 代码围栏')
     return text, wrappers
+
+
+def drawable_target(text):
+    """Best-effort visualization only; never replace the strict training validator."""
+    notes = []
+    try:
+        value = json.loads(text)
+    except (ValueError, TypeError):
+        return {'objects': []}, ['回复不是完整 JSON，无法可靠提取框']
+    if not isinstance(value, dict) or not isinstance(value.get('objects'), list):
+        return {'objects': []}, ['没有可读取的 objects 列表']
+    mode = value.get('coordinate_mode', 'normalized_1000')
+    if mode != 'normalized_1000':
+        return {'objects': []}, [f'未知或非 normalized_1000 坐标模式：{mode}，未猜测坐标尺度']
+    objects = []
+    for index, obj in enumerate(value['objects'], 1):
+        box = obj.get('bbox') if isinstance(obj, dict) else None
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            notes.append(f'对象 {index}：bbox 不是四个坐标，已跳过')
+            continue
+        try:
+            if any(isinstance(n, bool) for n in box):
+                raise ValueError('boolean coordinate')
+            box = [float(n) for n in box]
+            if not all(math.isfinite(n) for n in box):
+                raise ValueError('non-finite coordinate')
+        except (ValueError, TypeError, OverflowError):
+            notes.append(f'对象 {index}：坐标不是有限数字，已跳过')
+            continue
+        x1, y1, x2, y2 = box
+        fixed = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+        fixed = [min(1000, max(0, n)) for n in fixed]
+        if fixed[0] >= fixed[2] or fixed[1] >= fixed[3]:
+            notes.append(f'对象 {index}：框没有可见面积，已跳过')
+            continue
+        if fixed != box:
+            notes.append(f'对象 {index}：仅为显示整理反向坐标或裁剪越界部分，原始输出未改')
+        objects.append({'bbox': fixed, 'kind': str(obj.get('kind') or 'unknown'),
+                        'id': str(obj.get('id') or f'object_{index}')})
+    return {'objects': objects}, notes
 
 
 def load_results(run, cache=None, partial=False):
@@ -55,6 +96,7 @@ def load_results(run, cache=None, partial=False):
             digest = hashlib.sha256(str(im.size).encode() + im.tobytes()).hexdigest()
         response = row.get('response')
         error, target, wrappers = '', None, []
+        text = ''
         try:
             if not isinstance(response, str):
                 raise ValueError('Missing textual response')
@@ -63,8 +105,10 @@ def load_results(run, cache=None, partial=False):
         except (ValueError, TypeError, KeyError) as exc:
             error = str(exc)
             target = None
+        drawing, drawing_notes = drawable_target(text)
         parsed = {'source': source, 'image': im, 'digest': digest, 'response': response,
-                  'target': target, 'error': error, 'wrappers': wrappers}
+                  'target': target, 'error': error, 'wrappers': wrappers,
+                  'drawing': drawing, 'drawing_notes': drawing_notes}
         rows.append(parsed)
         if cache is not None:
             cache[line] = parsed
@@ -112,9 +156,12 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
         if row is None:
             return '<div>没有对应的基线图片</div>'
         if cache is None or not (assets / name).exists():
-            picture = draw_boxes(row['image'], row['target']) if row['target'] else row['image']
+            picture = draw_boxes(row['image'], row['drawing'])
             picture.save(assets / name)
-        status = '基础结构检查通过' if row['target'] else '检查失败：' + row['error']
+        status = f'已绘制 {len(row["drawing"]["objects"])} 个框。'
+        status += '基础结构检查通过' if row['target'] is not None else '结构提示（不阻止画框）：' + row['error']
+        if row['drawing_notes']:
+            status += '；' + '；'.join(row['drawing_notes'])
         if row['wrappers']:
             status += '（解析前已移除' + '、'.join(row['wrappers']) + '）'
         return (f'<div><h3>{label}</h3><img src="preview-assets/{name}"><p>{html.escape(status)}</p>'
@@ -141,7 +188,8 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             'section{display:flex;gap:12px}section>div{flex:1;min-width:0}img{width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>'
             f'<h1>LoRA 预测预览</h1><p>{progress}。' + ('推理进行中，每10秒刷新。' if running else '推理已结束；是否全部成功请核对完成数量和日志。') +
             f'</p><p>基础结构检查通过 {valid}/{len(rows)}。'
-            '这不是完整业务校验或准确率；查看照片框、装饰、frame 关联和 layer_order 的 JSON。'
+            '画框独立于结构检查：能读取的框尽量显示，坏框单独跳过；显示调整不修改原始回复。'
+            '检查通过比例不是准确率；查看照片框、装饰、frame 关联和 layer_order 的 JSON。'
             '若使用训练图片，只能检查拟合，不能证明泛化。</p>' + ''.join(cards))
     tmp = run / 'preview.html.tmp'
     tmp.write_text(page, encoding='utf-8')
