@@ -1,7 +1,5 @@
 # Collage Qwen3.5：A100 部署、推理与评测
 
-若 LoRA 合并后 vLLM 报大量 `visual.*` 权重未初始化，先按 [LoRA 合并权重检查与修复](training/LoRA合并权重修复.txt) 检查 Transformers 5.5.3 的已知保存问题。工具生成独立修复副本，保留原始模型和 checkpoint；修复副本已包含 LoRA，评测时不要再次挂 adapter。
-
 在一台 Linux A100 机器上复现 Qwen3.5-4B/9B 的拼贴图片分析：图片 → `structure.json` → 校验、必要时一次模型修复 → `analysis.json` 和 bbox 预览。
 
 仓库自带 `collage-recreate` 的 analyze 代码快照，不需要原电脑、不需要 SSH 回连，也不依赖另一个私有仓库。代码、模型、环境和输出均放在当前项目目录。当前分支已支持 LoRA SFT 和 vLLM 评测，见下方快速启动。
