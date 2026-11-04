@@ -3,11 +3,27 @@ import argparse
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps
 
 from dataset_io import validate_target
+
+
+def unwrap_response(response):
+    """Remove only empty thinking and a complete outer JSON code fence."""
+    text = response.strip()
+    wrappers = []
+    empty_think = re.match(r'^<think>\s*</think>\s*', text)
+    if empty_think:
+        text = text[empty_think.end():]
+        wrappers.append('空 think 标签')
+    fence = re.fullmatch(r'```(?:json)?[ \t]*\r?\n(.*?)\r?\n```', text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+        wrappers.append('JSON 代码围栏')
+    return text, wrappers
 
 
 def load_results(run, cache=None, partial=False):
@@ -27,23 +43,28 @@ def load_results(run, cache=None, partial=False):
             continue
         row = json.loads(line)
         paths = row.get('images', [])
-        if len(paths) != 1 or not isinstance(paths[0], str):
+        reference = paths[0] if len(paths) == 1 else None
+        # datasets.Image / SWIFT may serialize local images as {path, bytes}.
+        if isinstance(reference, dict) and reference.get('bytes') is None:
+            reference = reference.get('path')
+        if not isinstance(reference, str) or not reference:
             raise ValueError('Expected one image path in each ms-swift result')
-        source = Path(paths[0])
+        source = Path(reference)
         with Image.open(source) as raw:
             im = ImageOps.exif_transpose(raw).convert('RGB')
             digest = hashlib.sha256(str(im.size).encode() + im.tobytes()).hexdigest()
         response = row.get('response')
-        error, target = '', None
+        error, target, wrappers = '', None, []
         try:
             if not isinstance(response, str):
                 raise ValueError('Missing textual response')
-            target = validate_target(response)
+            text, wrappers = unwrap_response(response)
+            target = validate_target(text)
         except (ValueError, TypeError, KeyError) as exc:
             error = str(exc)
             target = None
         parsed = {'source': source, 'image': im, 'digest': digest, 'response': response,
-                  'target': target, 'error': error}
+                  'target': target, 'error': error, 'wrappers': wrappers}
         rows.append(parsed)
         if cache is not None:
             cache[line] = parsed
@@ -94,6 +115,8 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             picture = draw_boxes(row['image'], row['target']) if row['target'] else row['image']
             picture.save(assets / name)
         status = '基础结构检查通过' if row['target'] else '检查失败：' + row['error']
+        if row['wrappers']:
+            status += '（解析前已移除' + '、'.join(row['wrappers']) + '）'
         return (f'<div><h3>{label}</h3><img src="preview-assets/{name}"><p>{html.escape(status)}</p>'
                 f'<details><summary>查看模型原始 JSON / 回复</summary><pre>{html.escape(str(row["response"]))}</pre></details></div>')
     for i, row in enumerate(rows):
