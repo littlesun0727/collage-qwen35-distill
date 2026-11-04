@@ -1,0 +1,41 @@
+适用报错：vLLM 加载合并模型时，大量 visual.* 权重未初始化。
+
+merge-lora 的含义：把基础模型与 LoRA 增量合成完整模型后保存，再交给 vLLM。
+它不重新训练。合并产物通常在 checkpoint-xxx-merged；以 run.log 实际路径为准。
+
+Transformers 5.5.3 有已知保存回归，可能将 model.visual.* 错写成
+model.language_model.visual.*。先检查实际文件，不能仅凭报错断定。
+上游：https://github.com/huggingface/transformers/issues/45357
+
+以下在 Linux 仓库根目录、已激活的训练环境中运行。替换两个目录变量。
+MERGED_DIR=/path/to/checkpoint-300-merged
+FIXED_DIR=/path/to/checkpoint-300-merged-fixed
+
+1. 只检查，不修改任何文件：
+python training/repair_qwen35_merged.py --source "$MERGED_DIR"
+
+2. 如果 bad visual keys 大于 0，生成单独的修复副本：
+python training/repair_qwen35_merged.py --source "$MERGED_DIR" --output "$FIXED_DIR"
+
+只修改 safetensors 中的张量名称和索引，流式复制张量数据，不加载到 GPU。
+原始模型、LoRA、旧合并目录都保留；需要额外一份完整模型的磁盘空间。
+输出目录必须不存在。若检查没有命中此问题，不生成副本，也不要继续使用 FIXED_DIR。
+失败时保留 .partial-* 临时副本供检查，不将它作为模型使用。
+
+3. 使用修复后的完整模型评测（DATA_DIR 替换为已有数据集目录）：
+unset ADAPTER_DIR
+MODEL_DIR="$FIXED_DIR" DATA_DIR=/path/to/collage-structure-sft-v1 GPU=4 OUTPUT_DIR=runs/preview-fixed bash training/run_preview_official.sh
+
+不要再次指定 --adapter 或 --merge-lora：修复副本已经包含 LoRA。
+沿用原来失败的 --adapter + --merge-lora 命令，会再次加载原来的错误合并目录。
+需要与 base 对比时，可在上面命令前设置 BASELINE_DIR=/path/to/base-evaluation。
+OUTPUT_DIR 必须使用新目录。GPU 按实际可用卡修改。
+
+串行队列中，将该任务写为完整模型任务，不填 adapter：
+{"name":"step300-fixed","model":"/path/to/checkpoint-300-merged-fixed","compare_to":"base"}
+其中 base 必须是队列中排在前面的任务名称。
+
+这个工具兼容已有错误合并文件，不改变训练环境，也不修改训练脚本。
+在当前存在保存回归的环境中新合并其他 checkpoint 后，需要重新检查对应产物。
+本地验证覆盖分片索引、张量字节不变、源文件不变和名称冲突拒绝；
+尚未在远程 A100 上验证完整 vLLM 启动。
