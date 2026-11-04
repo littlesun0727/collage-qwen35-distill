@@ -1,12 +1,25 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
 
+# Shared training / vLLM environment: Linux x86_64, Python 3.12, glibc >= 2.31.
+# Keep the existing Torch/CUDA build and acceleration packages.
+# Install into the existing environment without --upgrade / --force-reinstall.
+# Missing flash-attn / causal-conv1d may need matching prebuilt wheels or nvcc.
 torch==2.10.0+cu128
 torchvision==0.25.0+cu128
-ms-swift==4.0.4
-transformers==5.2.0
+torchaudio==2.10.0+cu128
+ms-swift==4.1.0
+transformers==5.5.3
+vllm==0.19.1; sys_platform == "linux"
 peft==0.18.1
 trl==0.29.0
 qwen-vl-utils==0.0.14
+
+# PyPI package names (imports: flash_attn, fla, causal_conv1d).
+flash-attn==2.8.3.post2; sys_platform == "linux"
+flash-linear-attention==0.4.1; sys_platform == "linux"
+fla-core==0.4.1; sys_platform == "linux"
+causal-conv1d==1.7.0; sys_platform == "linux"
+
 datasets>=3.0,<4.0
 accelerate
 pillow
