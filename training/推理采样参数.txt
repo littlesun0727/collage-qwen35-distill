@@ -32,7 +32,7 @@ conda activate collage-qwen35-train
 export MODEL_DIR=/data/你的模型目录/Qwen3.5-4B
 export DATA_DIR=/data/你的数据目录/collage-structure-sft-v1
 
-裸模型完整137张（脚本默认单卡6、每批1张、输出上限8192，自动创建带时间戳的输出目录）：
+裸模型完整137张（脚本默认单卡6、每批8张、输出上限8192，自动创建带时间戳的输出目录）：
 GPU=6 bash training/run_preview_official.sh
 
 单图试跑（取test第一条，不会自动选择之前失败的图片）：

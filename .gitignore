@@ -12,3 +12,5 @@ runs/
 service-model.json
 *.zip
 *.tar.gz
+# Local evaluation paths
+eval_queue.local.json

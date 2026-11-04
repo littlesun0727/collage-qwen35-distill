@@ -35,7 +35,7 @@ GPU=4 LIMIT=1 bash training/run_preview_official.sh
 GPU=4 OUTPUT_DIR=runs/base-official-test137 bash training/run_preview_official.sh
 ```
 
-[启动脚本](training/run_preview_official.sh) 默认：GPU 6、test 最多137条、每批1张、图片预算1024、输入上限12288、输出上限8192、vLLM 总上下文20480、显存预算为整卡的0.7。输出目录必须不存在；省略 `OUTPUT_DIR` 时自动生成时间戳目录。模型提前结束时不会强制生成满8192 token。
+[启动脚本](training/run_preview_official.sh) 默认：GPU 6、test 最多137条、每批8张、图片预算1024、输入上限12288、输出上限8192、vLLM 总上下文20480、显存预算为整卡的0.7。输出目录必须不存在；省略 `OUTPUT_DIR` 时自动生成时间戳目录。模型提前结束时不会强制生成满8192 token。
 
 脚本使用以下六个参数：
 
@@ -246,3 +246,20 @@ tail -f logs/server.log
 这些是此前机器上经 SSH 调用的历史值；本仓库改为同机 HTTP，硬件与调度不同，耗时不保证相同。失败常见于重复生成、输出触顶和关联/层级约束。没有逐图人工 GT 时，不应把结构通过率当作识别准确率。
 
 `vendor/collage-recreate/` 保留原 analyze 及其依赖的源文件，哈希清单见 `docs/upstream-snapshot.json`。其中后续渲染、素材处理、其他模型 provider 模块仅作为源码依赖快照；本仓库支持的入口是本文列出的 analyze、评测、标注流程。私人 SSH 工具、历史图片报告、原始数据不在公开包内。 训练和评测入口见 `training/`。
+
+## 串行评测多个 base / LoRA checkpoint
+
+单次脚本和队列默认 infer-batch-size=8。复制清单后填写本机路径，任务按 `jobs` 顺序执行，前一个模型进程退出后才启动下一个。
+
+```bash
+cp training/eval_queue.example.json eval_queue.local.json
+# 先编辑 eval_queue.local.json 中的 model/data/adapter 路径
+python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --dry-run
+python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --output-root runs/eval-checkpoints
+```
+
+清单见 [eval_queue.example.json](training/eval_queue.example.json)。没有 `adapter` 的任务跑裸模型；有 `adapter` 的任务先合并 LoRA 再评测。每个任务可覆盖 `model`，必须与 adapter 的基础模型对应。`compare_to` 填前面任务的名字，例如 `base`，即可生成并排对比。
+
+每个任务保存到 `output-root/任务名/`，队列状态见 `queue-status.json`。默认失败即停止；加 `--continue-on-error` 可继续独立任务，基线失败时跳过依赖它的任务。仅使用已完整保存的 checkpoint，不会等待训练生成未来的 checkpoint。新一轮使用新 output-root。
+
+完整说明见 [串行评测说明](training/串行评测.txt)。这只是评测排队，不改变训练配置。

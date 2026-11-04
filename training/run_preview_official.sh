@@ -8,7 +8,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 : "${DATA_DIR:?Set DATA_DIR to the dataset directory containing test.jsonl and images}"
 GPU="${GPU:-6}"
 LIMIT="${LIMIT:-137}"
-INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-1}"
+INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-8}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-8192}"
 OUTPUT_DIR="${OUTPUT_DIR:-runs/preview-official-$(date +%Y%m%d-%H%M%S)}"
 

@@ -1,0 +1,9 @@
+{
+  "model": "/path/to/Qwen3.5-4B",
+  "data": "/path/to/collage-structure-sft-v1",
+  "jobs": [
+    {"name": "base"},
+    {"name": "step300", "adapter": "/path/to/checkpoint-300", "compare_to": "base"},
+    {"name": "step600", "adapter": "/path/to/checkpoint-600", "compare_to": "base"}
+  ]
+}

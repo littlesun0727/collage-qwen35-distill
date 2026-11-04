@@ -1,0 +1,35 @@
+串行评测 base 与多个 LoRA checkpoint
+
+单次启动脚本 run_preview_official.sh 默认 INFER_BATCH_SIZE 已改为8。
+需要逐张结果或减小显存时：INFER_BATCH_SIZE=1 bash training/run_preview_official.sh
+
+串行队列（Linux，激活训练/评测环境，在仓库根目录执行）：
+cp training/eval_queue.example.json eval_queue.local.json
+编辑 eval_queue.local.json，把 model、data 和 adapter 改成实际本地路径。
+
+python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --dry-run
+python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --output-root runs/eval-batch16-checkpoints
+
+队列按 jobs 顺序逐个启动，不并发。每个任务都调用独立的 run_lora.py 进程；前一任务结束后才开始下一个。
+默认：test最多137条、infer-batch-size=8、图片预算1024、输入12288、输出8192、官方非thinking通用采样配置。
+队列不读取单次Bash脚本的MODEL_DIR等环境变量，路径来自JSON清单，GPU来自--gpu。
+任务没有 adapter 就是裸模型；有 adapter 就先合并LoRA再评测。
+model 可在每个任务中单独指定，适合不同基础模型；LoRA任务的model必须是该adapter实际对应的基础模型。
+compare_to 可省略；填写时必须是清单中更早任务的name，例如base，不是目录路径。
+仅把同一基础模型的LoRA与对应裸模型对比。不同模型家族也必须先确认当前脚本/模板兼容。
+清单中的checkpoint必须已保存完毕；队列不会等待尚未生成的checkpoint。启动前检查所有模型、数据和adapter路径。
+name必须唯一，仅使用英文字母、数字、下划线或连字符。
+
+产物：
+runs/eval-batch16-checkpoints/plan.json：全部实际启动命令。
+runs/eval-batch16-checkpoints/queue-status.json：各任务状态。
+runs/eval-batch16-checkpoints/base/preview.html
+runs/eval-batch16-checkpoints/step300/preview.html
+runs/eval-batch16-checkpoints/step600/preview.html
+每个子目录都有独立的run.log、command.json、predictions.jsonl；compare_to会生成基线并排预览。
+
+默认一个任务失败就停止后续任务，已完成结果保留。
+加 --continue-on-error 可继续跑独立任务；若基线失败，依赖它的对比任务会跳过。
+使用新的--output-root，不覆盖旧结果、不自动恢复队列。重跑时将清单改为所需任务，使用新目录；引用的基线任务也必须保留。
+改变批量：--infer-batch-size 1。8仅表示一个评测任务内部的批大小，不表示同时启动8个模型。
+GPU应为空闲卡，不要与正在运行的训练或服务共用。
