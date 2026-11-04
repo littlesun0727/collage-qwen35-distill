@@ -19,8 +19,8 @@ git switch feat/vllm-eval-ddp-fa2
 git pull --ff-only origin feat/vllm-eval-ddp-fa2
 conda activate collage-qwen35-train
 
-export MODEL_DIR=/data/你的模型目录/Qwen3.5-4B
-export DATA_DIR=/data/你的数据目录/collage-structure-sft-v1
+export MODEL_DIR=/path/to/Qwen3.5-4B
+export DATA_DIR=/path/to/collage-structure-sft-v1
 ```
 
 模型目录必须包含完整原始权重；数据目录包含 train.jsonl、validation.jsonl、test.jsonl 和图片。使用完整下载的本地数据，并保持数据版本一致。GPU 编号应替换为获准使用的空闲卡。
@@ -29,10 +29,10 @@ export DATA_DIR=/data/你的数据目录/collage-structure-sft-v1
 
 ```bash
 # 先跑 test 第一张；不会自动选择此前失败的图片
-GPU=6 LIMIT=1 bash training/run_preview_official.sh
+GPU=4 LIMIT=1 bash training/run_preview_official.sh
 
 # 完整137张，显式保存基线目录
-GPU=6 OUTPUT_DIR=runs/base-official-test137 bash training/run_preview_official.sh
+GPU=4 OUTPUT_DIR=runs/base-official-test137 bash training/run_preview_official.sh
 ```
 
 [启动脚本](training/run_preview_official.sh) 默认：GPU 6、test 最多137条、每批1张、图片预算1024、输入上限12288、输出上限8192、vLLM 总上下文20480、显存预算为整卡的0.7。输出目录必须不存在；省略 `OUTPUT_DIR` 时自动生成时间戳目录。模型提前结束时不会强制生成满8192 token。
@@ -52,10 +52,10 @@ GPU=6 OUTPUT_DIR=runs/base-official-test137 bash training/run_preview_official.s
 
 ```bash
 # 降低 presence penalty 做对照；自动生成新目录
-GPU=6 bash training/run_preview_official.sh --presence-penalty 0.5
+GPU=4 bash training/run_preview_official.sh --presence-penalty 0.5
 
 # 增加批处理吞吐
-GPU=6 INFER_BATCH_SIZE=8 bash training/run_preview_official.sh
+GPU=4 INFER_BATCH_SIZE=8 bash training/run_preview_official.sh
 ```
 
 `temperature`、`repetition-penalty`、`top-p`、`top-k` 支持两个评测后端；`presence-penalty`、`min-p` 当前仅支持本仓库的 vLLM 入口。SWIFT 4.1.0 CLI 没有直接暴露后两项，本仓库将它们应用到请求的 vLLM SamplingParams。所有采样参数只影响推理，不改变 SFT loss 或权重；训练命令误传会报错。详见 [推理采样参数.txt](training/推理采样参数.txt)。
@@ -105,7 +105,6 @@ python -u training/preview_report.py --run runs/step600-official-test137 \
 ```
 
 会逐张打印读取、画框进度。预览图最长边限制为1600像素，不改变模型输入或预测坐标。命令参数已做 CPU 回归测试，启动脚本通过 Bash 语法检查；完整 A100 推理及采样效果需在目标机器验证。
-
 
 ## 历史独立 vLLM 服务部署流程
 
