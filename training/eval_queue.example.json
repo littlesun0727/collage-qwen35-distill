@@ -1,6 +1,14 @@
 {
   "model": "/path/to/Qwen3.5-4B",
   "data": "/path/to/collage-structure-sft-v1",
+  "sampling": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0,
+    "presence_penalty": 1.5,
+    "repetition_penalty": 1.0
+  },
   "jobs": [
     {"name": "base"},
     {"name": "step300", "adapter": "/path/to/checkpoint-300", "compare_to": "base"},

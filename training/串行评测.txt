@@ -13,6 +13,15 @@ python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --ou
 队列按 jobs 顺序逐个启动，不并发。每个任务都调用独立的 run_lora.py 进程；前一任务结束后才开始下一个。
 默认：test最多137条、infer-batch-size=8、图片预算1024、输入12288、输出8192、官方非thinking通用采样配置。
 队列不读取单次Bash脚本的MODEL_DIR等环境变量，路径来自JSON清单，GPU来自--gpu。
+采样参数通过 JSON 的 sampling 对象配置，键名使用下划线；任务内 sampling 覆盖全局 sampling，未填写的项保持原官方默认值。
+例如全局设置：
+"sampling": {"temperature": 0.2, "top_p": 0.8, "top_k": 20, "min_p": 0, "presence_penalty": 0, "repetition_penalty": 1.0}
+任务可单独覆盖：
+{"name": "base", "sampling": {"temperature": 0.7, "presence_penalty": 1.5}}
+这样 base 保持旧的官方采样，其余任务采用全局低温配置；对比时需注意采样不同。
+支持范围：temperature>=0；0<top_p<=1；top_k 为正整数；0<=min_p<=1；-2<=presence_penalty<=2；repetition_penalty>0。
+值必须是 JSON 数字，不能写字符串、null 或布尔值。拼错 sampling 键名或数值非法会在推理开始前报错。
+--dry-run 和 plan.json 会列出每个任务合并后的 sampling 及完整命令。修改采样参数会让该任务旧结果归档重跑；想同时保留多组实验的当前目录，请使用不同 name。
 任务没有 adapter 就是裸模型；有 adapter 默认直接挂载 LoRA，不合并。
 仅在明确需要时，在该任务中添加 "merge_lora": true 才合并；默认 false。
 model 可在每个任务中单独指定，适合不同基础模型；LoRA任务的model必须是该adapter实际对应的基础模型。
@@ -31,6 +40,17 @@ runs/eval-batch16-checkpoints/step600/preview.html
 
 默认一个任务失败就停止后续任务，已完成结果保留。
 加 --continue-on-error 可继续跑独立任务；若基线失败，依赖它的对比任务会跳过。
-使用新的--output-root，不覆盖旧结果、不自动恢复队列。重跑时将清单改为所需任务，使用新目录；引用的基线任务也必须保留。
+重复使用同一个 --output-root 即可自动恢复。按 jobs 的 name 查找子目录：
+- 没有结果：运行推理。
+- input.jsonl、command.json、predictions.jsonl 完整，输入和主要配置一致：复用预测，仅用 CPU 重建预览及基线对比。
+- 结果不完整、损坏或主要配置变化：先归档到 _history/name/时间戳，再重新跑整个任务；不做单张图片级续跑。
+兼容旧版队列或 run_preview_official.sh 单独生成的结果，不要求原来有 queue-status.json。
+已有 base 在其他目录时，将整个结果目录复制到 output-root/base（名字必须与 jobs 的 name 一致），保留 input.jsonl、command.json、predictions.jsonl。图片原路径仍需可访问。
+compare_to 仍引用前面的任务名；复用的 base 也算已完成。新增 checkpoint 直接追加到 jobs，再运行同一命令。
+--dry-run 同样指定 --output-root，会显示各任务 action=run/reuse/rerun 和 reason，不修改文件、不推理。
+复用校验包含输入 prompt/图片路径、模型/adapter 路径、采样参数、图片预算、输入输出上限、后端、split 和 LoRA 合并方式。GPU/批大小不作为重新推理条件。
+不会计算模型权重或图片内容哈希；请勿在相同路径原地替换权重或图片。此时应使用新的任务名或输出根目录。
+模型回答本身的 JSON 错误也属于有效评测结果，不因答案错误自动重采样。
+同一个输出根目录同时只允许一个队列运行；不要让独立推理命令同时写入这些任务子目录。
 改变批量：--infer-batch-size 1。8仅表示一个评测任务内部的批大小，不表示同时启动8个模型。
 GPU应为空闲卡，不要与正在运行的训练或服务共用。

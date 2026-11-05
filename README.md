@@ -260,6 +260,8 @@ python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --ou
 
 清单见 [eval_queue.example.json](training/eval_queue.example.json)。没有 `adapter` 的任务跑裸模型；有 `adapter` 的任务默认直接挂载 LoRA。仅在明确需要时，给该任务添加 `"merge_lora": true` 才合并。每个任务可覆盖 `model`，必须与 adapter 的基础模型对应。`compare_to` 填前面任务的名字，例如 `base`，即可生成并排对比。
 
-每个任务保存到 `output-root/任务名/`，队列状态见 `queue-status.json`。默认失败即停止；加 `--continue-on-error` 可继续独立任务，基线失败时跳过依赖它的任务。仅使用已完整保存的 checkpoint，不会等待训练生成未来的 checkpoint。新一轮使用新 output-root。
+JSON 顶层的 `sampling` 设置全局采样参数，每个任务也可添加 `sampling` 覆盖其中部分参数。例如全局 `"sampling": {"temperature": 0.2, "presence_penalty": 0}`；某个任务设置 `"sampling": {"temperature": 0.7, "presence_penalty": 1.5}` 可保持旧配置。支持 `temperature`、`top_p`、`top_k`、`min_p`、`presence_penalty`、`repetition_penalty`，未设置的项保持原官方默认值。`--dry-run` 和 `plan.json` 展示合并后的参数。参数变化会触发该任务归档重跑；保留不同采样实验时使用不同任务名。
+
+每个任务保存到 `output-root/任务名/`，队列状态见 `queue-status.json`。重复使用同一个 output-root 时，按任务名自动核验并复用完整且配置一致的预测，只重建预览；新增任务继续推理。不完整或配置不同的旧结果先归档到 `_history/任务名/时间戳/`，再重新跑该任务。已有独立 base 结果可整体复制到 `output-root/base/`，保留原有输入、配置及预测文件，且图片路径仍需可访问。`--dry-run --output-root ...` 可提前查看复用判断。校验不包含权重和图片内容哈希，不要原地替换同路径文件。默认失败即停止；加 `--continue-on-error` 可继续独立任务，基线失败时跳过依赖它的任务。仅使用已完整保存的 checkpoint，不会等待训练生成未来的 checkpoint。
 
 完整说明见 [串行评测说明](training/串行评测.txt)。这只是评测排队，不改变训练配置。
