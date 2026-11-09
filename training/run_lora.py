@@ -24,8 +24,10 @@ def main():
     duration = p.add_mutually_exclusive_group()
     duration.add_argument('--max-steps', type=int)
     duration.add_argument('--epochs', type=float)
-    p.add_argument('--save-steps', type=int, default=10)
-    p.add_argument('--eval-steps', type=int, default=50)
+    p.add_argument('--save-steps', type=int, default=10, help='Save a full training checkpoint every N optimizer steps')
+    p.add_argument('--eval-steps', type=int, default=50, help='Run validation every N optimizer steps; does not save checkpoints')
+    p.add_argument('--save-each-epoch', action='store_true',
+                   help='Also save at every epoch end, in addition to --save-steps (training only)')
     p.add_argument('--batch-size', type=int, default=1, help='Per-device micro batch')
     p.add_argument('--grad-accum', type=int, default=4)
     p.add_argument('--learning-rate', type=float, default=5e-5)
@@ -59,6 +61,8 @@ def main():
     p.add_argument('--dry-run', action='store_true')
     args = p.parse_args()
     infer = bool(args.adapter or args.preview)
+    if infer and args.save_each_epoch:
+        p.error('--save-each-epoch is for training, not inference')
     vllm_options = (args.vllm_gpu_memory_utilization is not None or
                     args.vllm_max_model_len is not None or args.vllm_enforce_eager)
     if not infer and (args.infer_backend is not None or args.infer_batch_size is not None or
@@ -225,6 +229,9 @@ def main():
             cmd += ['--max_steps', '-1', '--num_train_epochs', str(args.epochs)]
         else:
             cmd += ['--max_steps', str(args.max_steps)]
+        if args.save_each_epoch:
+            cmd += ['--external_plugins', str(Path(__file__).with_name('epoch_checkpoint.py').resolve()),
+                    '--callbacks', 'collage_save_each_epoch']
         if validation:
             cmd += ['--val_dataset', str(val_path), '--eval_strategy', 'steps',
                     '--eval_steps', str(args.eval_steps), '--per_device_eval_batch_size', '1']
@@ -254,6 +261,7 @@ def main():
         'world_size': world_size, 'effective_batch_size': None if infer else world_size * args.batch_size * args.grad_accum,
         'image_tokens': args.image_tokens, 'source': {**provenance, 'local_dir': str(args.data.resolve())}, 'split': split,
         'ground_truth_count': len(ground_truth),
+        'save_each_epoch': args.save_each_epoch if not infer else None,
         'infer_backend': backend, 'infer_batch_size': infer_batch if infer else None,
         'max_new_tokens': max_new_tokens if infer else None,
         'temperature': temperature if infer else None,
@@ -267,6 +275,8 @@ def main():
     print('Samples:', len(records), 'Validation:', len(validation), 'Output:', out, flush=True)
     if not infer:
         print('GPUs:', world_size, 'Effective batch:', world_size * args.batch_size * args.grad_accum, flush=True)
+        print(f'Checkpoint policy: every {args.save_steps} optimizer steps' +
+              (' + every epoch end (same step saved once)' if args.save_each_epoch else ''), flush=True)
     if infer:
         print('Inference backend:', backend, 'Submission/write batch:', infer_batch,
               'Max new tokens:', max_new_tokens, flush=True)

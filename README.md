@@ -71,6 +71,7 @@ python training/run_lora.py \
   --learning-rate 5e-5 --max-length 12288 --image-tokens 1024 \
   --attn-impl flash_attention_2 \
   --save-steps 100 --eval-steps 100 --master-port 29501 \
+  --save-each-epoch \
   --output runs/train-2gpu-bs16-2epochs
 ```
 
@@ -79,6 +80,14 @@ python training/run_lora.py \
 训练只读 train/validation，test 不参与训练或 checkpoint 选择。2轮是首轮实验起点，用验证 loss 和验证图片生成结果选择 checkpoint。训练中的 max-length 包含输入、图片和标准答案；推理中该参数限制输入，输出由 max-new-tokens 单独限制。
 
 续训在原命令中增加 `--resume /实际路径/checkpoint-300`，并使用新的 output 目录。保持原数据和配置；`--epochs 2` 表示累计完成2轮，不是额外2轮。checkpoint 必须保存完整训练状态、含 trainer_state.json；不能使用合并后的模型目录。
+
+### 同时按步和按 epoch 保存 checkpoint
+
+`--eval-steps` 控制验证，`--save-steps` 控制 checkpoint 保存，两者按优化器更新次数计数。加上 `--save-each-epoch` 后，在按步保存之外，每个 epoch 结束也保存一次；同一步已保存则不重复写。例如实际每轮330步、`--save-steps 100 --epochs 2` 时，会保存 step 100/200/300/**330**/400/500/600/**660**。目录仍为 `checkpoint-<global_step>`，所属 epoch 见 `trainer_state.json`。
+
+保留 LoRA 权重及 optimizer/scheduler/RNG 等续训状态；不会另存一份完整基础模型。epoch 结束保存不额外触发验证；`--max-steps` 或小数 `--epochs` 提前结束的最后一段也会保存。省略该开关保留原有按步策略。
+
+实现使用 [SWIFT 4.1 外部插件](https://github.com/modelscope/ms-swift/blob/v4.1.0/swift/arguments/base_args/base_args.py) 和 [Trainer callback](https://github.com/modelscope/ms-swift/blob/v4.1.0/swift/trainers/mixin.py)，由 Trainer 统一处理多卡保存。已经运行中的训练不会热加载新参数；后续启动时添加该开关，或从已完整保存的 checkpoint 使用原有 `--resume` 方式续训，`--epochs` 仍表示累计轮数。
 
 ### LoRA 评测与基线对比
 

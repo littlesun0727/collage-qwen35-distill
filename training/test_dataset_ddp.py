@@ -79,6 +79,25 @@ class DatasetDDPTests(unittest.TestCase):
         self.assertEqual(info['argv'][info['argv'].index('--write_batch_size') + 1], '1')
         self.assertEqual(info['argv'][info['argv'].index('--attn_impl') + 1], 'sdpa')
 
+    def test_step_and_epoch_checkpoint_options(self):
+        _, info = self.launch(['--gpus', '4,5', '--epochs', '2', '--save-steps', '100',
+                               '--eval-steps', '50', '--save-each-epoch'])
+        cmd = info['argv']
+        self.assertEqual(cmd[cmd.index('--save_strategy') + 1], 'steps')
+        self.assertEqual(cmd[cmd.index('--save_steps') + 1], '100')
+        self.assertEqual(cmd[cmd.index('--eval_steps') + 1], '50')
+        self.assertEqual(cmd[cmd.index('--save_only_model') + 1], 'false')
+        plugin = Path(cmd[cmd.index('--external_plugins') + 1])
+        self.assertTrue(plugin.is_file())
+        self.assertEqual(plugin.name, 'epoch_checkpoint.py')
+        self.assertEqual(cmd[cmd.index('--callbacks') + 1], 'collage_save_each_epoch')
+        self.assertTrue(info['save_each_epoch'])
+        self.assertNotIn('--save_total_limit', cmd)
+        _, original = self.launch(['--gpu', '4'], name='steps-only')
+        self.assertNotIn('--external_plugins', original['argv'])
+        self.assertFalse(original['save_each_epoch'])
+        self.launch(['--gpu', '4', '--preview', '--save-each-epoch'], success=False)
+
     def test_vllm_batch_context_and_adapter(self):
         adapter = self.root / 'checkpoint-10'
         adapter.mkdir()
