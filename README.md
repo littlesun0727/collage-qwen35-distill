@@ -97,12 +97,16 @@ GPU=7 ADAPTER_DIR=/实际路径/checkpoint-600 \
 
 产物包括 preview.html、preview-assets/、predictions.jsonl、run.log、command.json。预览尽量画每个可用 bbox：重复 ID 或关联字段问题不阻止其他框显示。原始输出保留；结构通过率不等于定位准确率。每批完成后更新预览。
 
+预览最左列现在显示 **GT 标注框线图**，右侧为基线（可选）和当前模型；顶部及逐图下方展示归档口径的六项指标。自动保存 `ground_truth.jsonl`，并导出 `metrics/summary.csv` 与 `metrics/per_sample.csv` 供汇报使用。GT 不进入模型输入；未运行复检时复检后通过率为 N/A。完整口径、旧结果补建及文件说明见 [GT 对照与六项评测](training/PREVIEW_METRICS.md)。
+
 只重建页面，不重新推理、不需要 GPU：
 
 ```bash
 python -u training/preview_report.py --run runs/step600-official-test137 \
   --baseline runs/base-official-test137
 ```
+
+旧运行找不到 GT 时追加 `--gt /path/to/collage-structure-sft-v1/test.jsonl`；仍然只读取已有预测，不重新推理。新运行及能从 `command.json` 找回原数据的旧运行无需追加。
 
 会逐张打印读取、画框进度。预览图最长边限制为1600像素，不改变模型输入或预测坐标。命令参数已做 CPU 回归测试，启动脚本通过 Bash 语法检查；完整 A100 推理及采样效果需在目标机器验证。
 

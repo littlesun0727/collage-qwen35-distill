@@ -26,3 +26,5 @@ pillow
 tensorboard
 jsonschema
 huggingface-hub
+numpy>=1.24
+scipy>=1.10

@@ -137,6 +137,7 @@ def main():
     validation = []
     split = (args.preview_split or ('validation' if (args.data / 'validation.jsonl').is_file() else 'train')) if infer else 'train'
     records = load_split(args.data, split)
+    ground_truth = records[:args.limit] if infer and not args.images else []
     if not infer and (args.data / 'validation.jsonl').is_file():
         validation = load_split(args.data, 'validation')
         assert_split_isolation(records, validation)
@@ -162,6 +163,9 @@ def main():
     out.mkdir(parents=True)
     dataset = out / 'input.jsonl'
     dataset.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in records), encoding='utf-8')
+    if ground_truth:
+        from preview_metrics import save_ground_truth
+        save_ground_truth(ground_truth, out)
     val_path = out / 'validation.jsonl'
     if validation:
         val_path.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in validation), encoding='utf-8')
@@ -248,7 +252,8 @@ def main():
                    MASTER_ADDR='127.0.0.1', MASTER_PORT=str(args.master_port))
     (out / 'command.json').write_text(json.dumps({'argv': cmd, 'gpu': args.gpu,
         'world_size': world_size, 'effective_batch_size': None if infer else world_size * args.batch_size * args.grad_accum,
-        'image_tokens': args.image_tokens, 'source': provenance, 'split': split,
+        'image_tokens': args.image_tokens, 'source': {**provenance, 'local_dir': str(args.data.resolve())}, 'split': split,
+        'ground_truth_count': len(ground_truth),
         'infer_backend': backend, 'infer_batch_size': infer_batch if infer else None,
         'max_new_tokens': max_new_tokens if infer else None,
         'temperature': temperature if infer else None,
