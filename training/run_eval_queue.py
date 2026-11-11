@@ -205,12 +205,7 @@ def _execute_plan(plan, output_root, continue_on_error=False):
         print(f"[QUEUE] {job['name']}：{action}，{reason}", flush=True)
         try:
             if action == 'reuse':
-                # Rebuild links/assets against the current baseline without loading a model.
-                report = [sys.executable, '-u', str(Path(__file__).with_name('preview_report.py')),
-                          '--run', job['output']]
-                if job['compare_to']:
-                    report += ['--baseline', str(output_root / job['compare_to'])]
-                code = subprocess.run(report, check=False).returncode
+                code = 0
             else:
                 original_out = Path(job['output'])
                 out = original_out.resolve()
@@ -231,6 +226,22 @@ def _execute_plan(plan, output_root, continue_on_error=False):
                     if verified != 'reuse':
                         code = 1
                         result['error'] = f'进程退出成功，但结果校验失败：{detail}'
+            if code == 0:
+                # Live preview is best-effort. Require a final scored report for BOTH
+                # fresh inference and reused predictions before declaring success.
+                result['stage'] = 'report'
+                save()
+                report = [sys.executable, '-u', str(Path(__file__).with_name('preview_report.py')),
+                          '--run', job['output'], '--gt',
+                          str(Path(option(job['argv'], '--data')) / 'test.jsonl')]
+                if job['compare_to']:
+                    baseline = next(j['output'] for j in plan if j['name'] == job['compare_to'])
+                    report += ['--baseline', baseline]
+                print(f"[QUEUE] Generating GT metrics and final preview: {job['name']}", flush=True)
+                code = subprocess.run(report, check=False).returncode
+                if code != 0:
+                    result['error'] = ('Final metrics report failed; predictions retained. '
+                                       'Rerun with the same output-root to retry the report.')
         except KeyboardInterrupt:
             result['status'] = 'interrupted'
             save()

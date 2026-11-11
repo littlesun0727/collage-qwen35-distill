@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -46,7 +47,9 @@ class QueueTests(unittest.TestCase):
                         ('run', ''), ('reuse', ''), ('run', ''), ('reuse', ''),
                         ('run', ''), ('reuse', '')]):
                 self.assertEqual(execute_plan(plan, out), 0)
-            self.assertEqual(calls, [j['argv'] for j in plan])
+            self.assertEqual(calls[::2], [j['argv'] for j in plan])
+            self.assertTrue(all('--gt' in argv for argv in calls[1::2]))
+            self.assertEqual(option(calls[3], '--baseline'), plan[0]['output'])
             self.assertEqual(len(json.loads((out/'queue-status.json').read_text())), 3)
             with patch('run_eval_queue.subprocess.run', return_value=SimpleNamespace(returncode=1)) as run:
                 self.assertEqual(execute_plan(plan, root/'failed'), 1)
@@ -186,3 +189,57 @@ class ResumeTests(unittest.TestCase):
             self.assertNotIn('--output', run.call_args.args[0])
         self.assertEqual(path.read_text(), original)
         self.assertEqual(inspect_result(self.plan[0])[0], 'reuse')
+
+    def test_first_run_generates_real_metrics_and_base_comparison(self):
+        from PIL import Image
+        Image.new('RGB', (32, 32), 'white').save(self.root / 'one.png')
+        gt = {'background': {'type': 'transparent'}, 'objects': [
+            {'id': 'p', 'kind': 'photo', 'bbox': [0, 0, 1000, 1000]}],
+            'layer_order': ['p']}
+        self.row['messages'][-1]['content'] = json.dumps(gt)
+        (self.root / 'test.jsonl').write_text(json.dumps(self.row))
+        real_run = subprocess.run
+
+        def run(argv, check):
+            if '--output' in argv:
+                self.run_fake(argv, check)
+                # Simulate successful inference with NO live preview or GT snapshot.
+                # Base is correct; current output stays invalid to test actual scoring.
+                if argv == self.plan[0]['argv']:
+                    path = self.out / 'base/predictions.jsonl'
+                    row = json.loads(path.read_text())
+                    row['response'] = json.dumps(gt)
+                    path.write_text(json.dumps(row))
+                return SimpleNamespace(returncode=0)
+            return real_run(argv, check=check)
+
+        with patch('run_eval_queue.subprocess.run', side_effect=run):
+            self.assertEqual(execute_plan(self.plan, self.out), 0)
+        for name, count in [('base', 1), ('next', 2)]:
+            report = self.out / name
+            html = (report / 'preview.html').read_text(encoding='utf-8')
+            self.assertIn('metrics/summary.csv', html)
+            data = json.loads((report / 'metrics/summary.json').read_text(encoding='utf-8'))
+            self.assertFalse(data['protocol']['running'])
+            self.assertEqual(len(data['models']), count)
+        scores = {label.split(' · ')[-1]: value['photo']['recall']['mean']
+                  for label, value in data['models'].items()}
+        self.assertEqual(scores, {'base': 1, 'next': 0})
+
+    def test_fresh_report_failure_retains_predictions_and_retry_skips_inference(self):
+        def fail_report(argv, check):
+            if '--output' in argv:
+                return self.run_fake(argv, check)
+            return SimpleNamespace(returncode=1)
+
+        with patch('run_eval_queue.subprocess.run', side_effect=fail_report):
+            self.assertEqual(execute_plan(self.plan, self.out, True), 1)
+        status = json.loads((self.out / 'queue-status.json').read_text())
+        self.assertEqual(status[0]['status'], 'failed')
+        self.assertEqual(status[0]['stage'], 'report')
+        self.assertIn('predictions retained', status[0]['error'])
+        self.assertEqual(status[1]['status'], 'skipped: baseline failed')
+        self.assertEqual(inspect_result(self.plan[0])[0], 'reuse')
+        with patch('run_eval_queue.subprocess.run', side_effect=self.run_fake) as run:
+            self.assertEqual(execute_plan(self.plan, self.out), 0)
+        self.assertNotIn('--output', run.call_args_list[0].args[0])
