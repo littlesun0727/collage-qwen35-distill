@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from PIL import Image, ImageOps
+from response_parsing import PARSING_POLICY, unwrap_response
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from eval.focused import REFERENCE_URL, evaluate_focused, overlap_pairs, summarize_focused
@@ -158,17 +159,26 @@ def score_rows(targets, predictions, *, cache=None):
             raise ValueError(f'Image pixels changed since GT snapshot: {path}')
         raw = row['response'] if row else None
         present = row is not None and not row.get('missing', False)
-        key = ('six_metrics', json.dumps(gt, sort_keys=True, ensure_ascii=False),
+        key = ('six_metrics', PARSING_POLICY, json.dumps(gt, sort_keys=True, ensure_ascii=False),
                json.dumps(raw, sort_keys=True, ensure_ascii=False), present)
         if cache is not None and key in cache:
             sample = cache[key]
         else:
+            text, wrappers = unwrap_response(raw) if isinstance(raw, str) else (raw, [])
+            raw_structure = parse_structure(raw, present=present)
             sample = evaluate_focused(gt['id'], parse_structure(gt['structure']),
-                                      parse_structure(raw, present=present), gt['occlusion_pairs'])
+                                      parse_structure(text, present=present), gt['occlusion_pairs'])
+            sample['parsing'] = {'policy': PARSING_POLICY, 'removed_wrappers': wrappers,
+                                 'raw_structure_valid': raw_structure.valid,
+                                 'raw_errors': raw_structure.errors}
             if cache is not None:
                 cache[key] = sample
         samples.append(sample)
-    return summarize_focused(samples), samples
+    summary = summarize_focused(samples)
+    summary['parsing_policy'] = PARSING_POLICY
+    summary['diagnostics']['wrapper_images'] = sum(bool(s['parsing']['removed_wrappers']) for s in samples)
+    summary['diagnostics']['raw_structure_valid_images'] = sum(s['parsing']['raw_structure_valid'] for s in samples)
+    return summary, samples
 
 
 FIELDS = [
@@ -191,13 +201,20 @@ def metric_table(columns, *, per_sample=False):
     """Render six rows with identical definitions in overview and sample cards."""
     def get(data, group, key, kind='percent'):
         value = data[group][key]
+        number = value if per_sample else value['mean']
+        display = fmt(number, kind)
+        if number is None:
+            display = '无适用 GT' if data[group]['gt_count'] == 0 else '无匹配框'
         if per_sample:
-            return fmt(value, kind)
-        return f'{fmt(value["mean"], kind)} <small>({value["eligible_images"]}/{value["total_images"]} 张)</small>'
+            return display
+        return f'{display} <small>({value["eligible_images"]}/{value["total_images"]} 张)</small>'
 
     def values(data):
         valid = float(data['structure_valid']) if per_sample else data['output_usability']['first_pass_core_valid_rate']
-        return [f'首次 {fmt(valid)}<br><small>复检后：N/A（未运行复检）</small>',
+        detail = ''
+        if per_sample and data.get('errors'):
+            detail = '<br><small>' + html.escape('；'.join(data['errors'])) + '</small>'
+        return [f'首次 {fmt(valid)}{detail}<br><small>复检：未运行</small>',
                 '召回 ' + get(data, 'photo', 'recall') + '<br>已找到框 IoU ' + get(data, 'photo', 'matched_mean_iou', 'iou'),
                 '召回 ' + get(data, 'fixed', 'recall') + '<br>已找到框 IoU ' + get(data, 'fixed', 'matched_mean_iou', 'iou'),
                 get(data, 'layer_order', 'rate'),
@@ -231,6 +248,7 @@ def export_metrics(run, targets, evaluations, source, *, running=False):
     report = {'protocol': {'version': 'collage-structure-eval-v3-preview', 'reference_url': REFERENCE_URL,
                           'iou_threshold': .5, 'aggregation': 'per-image mean on fixed GT-positive cohorts',
                           'prediction_stage': 'raw_first', 'repair_performed': False,
+                          'response_parsing': PARSING_POLICY,
                           'gt_sha256': digest, 'gt_source': source, 'running': running,
                           'order_policies': sorted({t['occlusion_policy'] for t in targets})},
               'models': {name: summary for name, (summary, _) in evaluations.items()}}
@@ -249,7 +267,9 @@ def export_metrics(run, targets, evaluations, source, *, running=False):
             writer.writerow([name, '复检后 JSON 结构通过率（未运行）', '', 'N/A', 0, len(targets), ''])
             for group, key, label, kind in FIELDS:
                 m = summary[group][key]
-                writer.writerow([name, label, m['mean'], fmt(m['mean'], kind), m['eligible_images'], m['total_images'], summary[group]['gt_count']])
+                display = fmt(m['mean'], kind) if m['mean'] is not None else (
+                    '无适用 GT' if summary[group]['gt_count'] == 0 else '无匹配框')
+                writer.writerow([name, label, m['mean'], display, m['eligible_images'], m['total_images'], summary[group]['gt_count']])
     with (out / 'per_sample.csv').open('w', encoding='utf-8-sig', newline='') as stream:
         writer = csv.writer(stream)
         writer.writerow(['id', 'image', 'model', 'prediction_present', 'structure_valid'] + [f[2] for f in FIELDS])

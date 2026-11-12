@@ -177,6 +177,49 @@ class ReportMetricTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'pixels changed'):
             build_report(run, quiet=True)
 
+    def test_wrapped_predictions_score_in_html_csv_and_json_without_rewriting(self):
+        run, base = self.run_dir('wrapped'), self.run_dir('plain')
+        self.predictions(base, [0, 1])
+        wrapped = '<think>\n\n</think>\n\n```json\n' + json.dumps(structure()) + '\n```'
+        write_jsonl(run / 'predictions.jsonl', [dict(r, response=wrapped) for r in self.records])
+        original = (run / 'predictions.jsonl').read_bytes()
+        build_report(run, base, quiet=True)
+        report = json.loads((run / 'metrics/summary.json').read_text(encoding='utf-8'))
+        self.assertEqual(report['protocol']['response_parsing'], 'empty_think_and_outer_json_fence_v1')
+        for metrics in report['models'].values():
+            self.assertEqual(metrics['photo']['recall']['mean'], 1)
+            self.assertEqual(metrics['photo']['matched_mean_iou']['mean'], 1)
+            self.assertEqual(metrics['output_usability']['first_pass_core_valid_rate'], 1)
+        current = report['models']['当前模型 · wrapped']
+        self.assertEqual(current['diagnostics']['wrapper_images'], 2)
+        self.assertEqual(current['diagnostics']['raw_structure_valid_images'], 0)
+        page = (run / 'preview.html').read_text(encoding='utf-8')
+        self.assertIn('召回 100.00%', page)
+        self.assertIn('已找到框 IoU 1.000', page)
+        with (run / 'metrics/summary.csv').open(encoding='utf-8-sig', newline='') as f:
+            scores = [r for r in csv.DictReader(f) if r['metric'] == 'photo 召回率']
+        self.assertTrue(all(float(r['value_0_to_1']) == 1 for r in scores))
+        self.assertEqual((run / 'predictions.jsonl').read_bytes(), original)
+
+    def test_wrapper_parsing_does_not_repair_bad_json_or_nonempty_thinking(self):
+        for index, response in enumerate((
+                '```json\n{"objects": [\n```',
+                '<think>reasoning</think>\n' + json.dumps(structure()),
+                'Here is the answer: ' + json.dumps(structure()),
+                '```json\n' + json.dumps(structure()))):
+            with self.subTest(response=response):
+                run = self.run_dir(f'invalid-{index}')
+                write_jsonl(run / 'predictions.jsonl', [dict(self.records[0], response=response)])
+                build_report(run, quiet=True)
+                report = json.loads((run / 'metrics/summary.json').read_text(encoding='utf-8'))
+                metrics = next(iter(report['models'].values()))
+                self.assertEqual(metrics['photo']['recall']['mean'], 0)
+                self.assertEqual(metrics['photo']['recall']['total_images'], 2)
+                self.assertIsNone(metrics['photo']['matched_mean_iou']['mean'])
+                page = (run / 'preview.html').read_text(encoding='utf-8')
+                self.assertIn('无匹配框', page)
+                self.assertIn('invalid_json', page)
+
     def test_run_lora_gt_never_enters_inference_input(self):
         model = self.root / 'model'
         model.mkdir()
