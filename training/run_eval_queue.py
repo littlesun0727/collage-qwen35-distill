@@ -123,7 +123,7 @@ def queue_lock(root):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def make_plan(config, gpu, output_root, batch_size=8):
+def make_plan(config, gpu, output_root, batch_size=8, limit=None):
     jobs = config.get('jobs')
     if not isinstance(jobs, list) or not jobs:
         raise ValueError('jobs must be a nonempty list')
@@ -132,6 +132,13 @@ def make_plan(config, gpu, output_root, batch_size=8):
     data = Path(config['data']).resolve()
     if not (data / 'test.jsonl').is_file():
         raise ValueError(f'Missing test.jsonl: {data}')
+    limit = config.get('limit') if limit is None else limit
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+        raise ValueError('limit must be a positive integer; omit it to evaluate the full test split')
+    test_count = len(read_jsonl(data / 'test.jsonl'))
+    if test_count == 0:
+        raise ValueError(f'Empty test.jsonl: {data}')
+    sample_count = test_count if limit is None else min(limit, test_count)
     if batch_size < 1 or ',' in gpu or not gpu.strip():
         raise ValueError('Use a positive batch size and exactly one GPU')
     plan, seen = [], {}
@@ -147,7 +154,7 @@ def make_plan(config, gpu, output_root, batch_size=8):
                     **sampling_overrides(job.get('sampling', {}), f'jobs[{name}].sampling')}
         cmd = [sys.executable, '-u', str(Path(__file__).with_name('run_lora.py').resolve()),
                '--model', str(model), '--data', str(data), '--gpu', gpu,
-               '--infer-backend', 'vllm', '--preview-split', 'test', '--limit', '137',
+               '--infer-backend', 'vllm', '--preview-split', 'test', '--limit', str(sample_count),
                '--infer-batch-size', str(batch_size), '--image-tokens', '1024',
                '--max-length', '12288', '--max-new-tokens', '8192',
                '--vllm-gpu-memory-utilization', '0.7',
@@ -174,6 +181,7 @@ def make_plan(config, gpu, output_root, batch_size=8):
                 raise ValueError(f'{name}: compare_to must name an earlier job')
             cmd += ['--compare-to', str(seen[baseline])]
         plan.append({'name': name, 'compare_to': baseline, 'output': str(out),
+                     'test_count': test_count, 'sample_count': sample_count,
                      'sampling': sampling, 'argv': cmd})
         seen[name] = out
     return plan
@@ -265,6 +273,7 @@ def main():
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--gpu', default='4')
     parser.add_argument('--infer-batch-size', type=int, default=8)
+    parser.add_argument('--limit', type=int, help='Optional test sample cap; defaults to the entire test split')
     parser.add_argument('--output-root', type=Path,
                         default=Path('runs') / ('eval-queue-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f')))
     parser.add_argument('--continue-on-error', action='store_true')
@@ -273,7 +282,7 @@ def main():
     try:
         root = args.output_root.resolve()
         config = json.loads(args.config.read_text(encoding='utf-8-sig'))
-        plan = make_plan(config, args.gpu, root, args.infer_batch_size)
+        plan = make_plan(config, args.gpu, root, args.infer_batch_size, args.limit)
     except (ValueError, KeyError, TypeError, OSError) as exc:
         parser.error(str(exc))
     if args.dry_run:
@@ -281,6 +290,7 @@ def main():
             job['action'], job['reason'] = inspect_result(job)
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return
+    print(f'[QUEUE] Evaluating {plan[0]["sample_count"]}/{plan[0]["test_count"]} test samples per job', flush=True)
     try:
         code = execute_plan(plan, root, args.continue_on_error)
     except ValueError as exc:

@@ -10,6 +10,32 @@ from run_eval_queue import make_plan, execute_plan, inspect_result, queue_lock, 
 
 
 class QueueTests(unittest.TestCase):
+    def test_full_test_split_and_explicit_limits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'config.json').write_text('{}')
+            dataset = root / 'test.jsonl'
+            dataset.write_text('{}\n' * 202)
+            config = {'model': str(root), 'data': str(root), 'jobs': [{'name': 'base'}]}
+            def plan(**kwargs):
+                return make_plan(config, '0', root / 'out', **kwargs)[0]
+            self.assertEqual(option(plan()['argv'], '--limit'), '202')
+            self.assertEqual(plan()['sample_count'], 202)
+            config['limit'] = 137
+            self.assertEqual(option(plan()['argv'], '--limit'), '137')
+            self.assertEqual(option(plan(limit=20)['argv'], '--limit'), '20')
+            self.assertEqual(option(plan(limit=999)['argv'], '--limit'), '202')
+            for invalid in (0, -1, True, 1.5, '202'):
+                config['limit'] = invalid
+                with self.assertRaisesRegex(ValueError, 'positive integer'):
+                    plan()
+            config.pop('limit')
+            dataset.write_text('{}\n' * 250)
+            self.assertEqual(option(plan()['argv'], '--limit'), '250')
+            dataset.write_text('')
+            with self.assertRaisesRegex(ValueError, 'Empty test'):
+                plan()
+
     def test_base_and_adapter_plan_and_failure_handling(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -164,6 +190,16 @@ class ResumeTests(unittest.TestCase):
         self.row['messages'][0]['content'] = 'changed prompt'
         (self.root / 'test.jsonl').write_text(json.dumps(self.row))
         self.assertEqual(inspect_result(self.plan[0])[0], 'rerun')
+
+    def test_expanded_test_split_does_not_reuse_partial_cohort(self):
+        self.complete(self.plan[0])
+        extra = dict(self.row, images=['two.png'])
+        (self.root / 'test.jsonl').write_text(json.dumps(self.row) + '\n' + json.dumps(extra))
+        full = make_plan(self.config, '4', self.out)
+        self.assertEqual(option(full[0]['argv'], '--limit'), '2')
+        self.assertEqual(inspect_result(full[0])[0], 'rerun')
+        limited = make_plan(self.config, '4', self.out, limit=1)
+        self.assertEqual(inspect_result(limited[0])[0], 'reuse')
 
     def test_missing_predictions_not_success_and_lock_released(self):
         with patch('run_eval_queue.subprocess.run', return_value=SimpleNamespace(returncode=0)):

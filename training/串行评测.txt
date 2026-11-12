@@ -11,7 +11,10 @@ python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --dr
 python -u training/run_eval_queue.py --config eval_queue.local.json --gpu 4 --output-root runs/eval-batch16-checkpoints
 
 队列按 jobs 顺序逐个启动，不并发。每个任务都调用独立的 run_lora.py 进程；前一任务结束后才开始下一个。
-默认：test最多137条、infer-batch-size=8、图片预算1024、输入12288、输出8192、官方非thinking通用采样配置。
+默认：评测 data/test.jsonl 的全部样本、infer-batch-size=8、图片预算1024、输入12288、输出8192、官方非thinking通用采样配置。
+数量自动从 test.jsonl 读取：202条就评202条，后续扩充无需改代码。plan.json / --dry-run 中的 test_count 和 sample_count 显示总数与本次评测数。
+仅做小规模测试时可加 --limit 20，或在 JSON 顶层设置 "limit": 20；命令行优先，必须为正整数。全量评测请省略 --limit，并删除 JSON 中的 limit 设置。
+旧137条结果不算202条全量完成：同一 output-root 下会归档后重新推理整个任务，不会自动只补65条。可先 --dry-run 查看，或使用新 output-root 保留旧报告。
 队列不读取单次Bash脚本的MODEL_DIR等环境变量，路径来自JSON清单，GPU来自--gpu。
 采样参数通过 JSON 的 sampling 对象配置，键名使用下划线；任务内 sampling 覆盖全局 sampling，未填写的项保持原官方默认值。
 例如全局设置：
