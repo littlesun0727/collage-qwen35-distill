@@ -130,3 +130,18 @@ summary = aggregate([result])
 ```
 
 本工具不生成教师标注、不运行训练，不将教师自检成绩当作学生能力。
+
+## SFT v3 照片效果评测
+
+完整测试可直接使用数据包里的 test.jsonl 和 SWIFT 的 predictions.jsonl。预测按图片文件名匹配，重复 ID 会报错。已有的 id/structure 格式也可继续使用。
+
+~~~bash
+python -m eval.score --gt /data/collage-structure-sft-v3/test.jsonl --pred runs/model/predictions.jsonl --out runs/model/eval-v3 --label-version v3 --prediction-stage raw_first
+~~~
+
+训练预览、串行队列和批量评分共享 `photo_effects`。默认根据 GT 的提示词或效果字段识别 v3。对没有提示词且全部为普通矩形照片的小型 GT，可显式指定 `--label-version v3`。历史评分可指定 v2。队列默认覆盖整个 test split，需要固定前 N 张可在队列 JSON 设置 limit；官方 shell 脚本使用 LIMIT 环境变量。
+
+- detection 按同类对象 bbox IoU ≥ 0.5 一对一匹配，按对象累计。end_to_end 包含漏检和多检照片，matched 只统计已匹配照片。frame 单列检测成绩。gt_images 和 gt 是正例图片数和对象数，空分母为 N/A。
+- mode 和 shape 按类别评分，省略值等价于 window 和 rectangle，形状只适用于 window。五角星的显式 5 与省略等价，star_points 检测统计非默认尖角数。其余字段按存在性评分。写入非法值会使预测契约校验失败，且该次效果预测不能命中。
+- quality 以合法的已匹配属性为分母，同时报告 count。popout 使用矩形 IoU，轮廓使用 512×512 掩膜 IoU。角点和轴的点误差占实际图片对角线的比例，轴方向误差以度计，椭圆允许端点对调。无图片尺寸时跳过依赖宽高比的误差。颜色按十六进制精确匹配；线宽、圆角和渐隐宽度误差使用标签的相对单位。
+- primary 和历史诊断保留基础结构分。photo_effects 分别记录预期、存在、JSON 解析成功、完整契约通过及缺失情况。首轮与修复后由 prediction_stage 区分。截断率仅使用提供 finish_reason 的预测，未知时为 N/A。gt_invalid 和逐样本 gt_errors 可用于排查不合规标签。

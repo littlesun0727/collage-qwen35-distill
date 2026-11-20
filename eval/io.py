@@ -85,6 +85,29 @@ def load_records(path):
                 envelope = strict_loads(line)
             except ValueError as exc:
                 raise ValueError(f"{path}:{line_number}: invalid JSONL envelope: {exc}") from exc
+            if isinstance(envelope, dict) and 'response' in envelope and 'images' in envelope and 'structure' not in envelope:
+                images = envelope['images']
+                if not isinstance(images, list) or len(images) != 1:
+                    raise ValueError(f'{path}:{line_number}: expected one prediction image')
+                image = images[0]
+                name = image.get('path') if isinstance(image, dict) else image
+                if not isinstance(name, str) or not name:
+                    raise ValueError(f'{path}:{line_number}: expected a prediction image path')
+                envelope = {'id': envelope.get('id', Path(name.replace(chr(92), '/')).name),
+                            'structure': envelope['response'], 'finish_reason': envelope.get('finish_reason')}
+            if isinstance(envelope, dict) and 'messages' in envelope and 'images' in envelope and 'structure' not in envelope:
+                images = envelope['images']
+                messages = envelope['messages']
+                if (not isinstance(images, list) or len(images) != 1 or not isinstance(images[0], str)
+                        or not isinstance(messages, list) or not messages or messages[-1].get('role') != 'assistant'):
+                    raise ValueError(f'{path}:{line_number}: invalid SFT envelope')
+                image_path = path.parent / images[0]
+                envelope = {'id': envelope.get('id', image_path.name), 'structure': messages[-1]['content'],
+                            'v3_prompt': any('popout' in str(m.get('content','')) for m in messages[:-1])}
+                if image_path.is_file():
+                    from PIL import Image
+                    with Image.open(image_path) as im:
+                        envelope['width'], envelope['height'] = im.size[::-1] if im.getexif().get(274) in (5,6,7,8) else im.size
             if not isinstance(envelope, dict) or not identifier(envelope.get("id")):
                 raise ValueError(f"{path}:{line_number}: envelope requires string id")
             if "structure" in envelope and "structure_path" in envelope:

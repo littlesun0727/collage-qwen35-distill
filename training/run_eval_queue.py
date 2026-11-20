@@ -134,6 +134,11 @@ def make_plan(config, gpu, output_root, batch_size=8):
         raise ValueError(f'Missing test.jsonl: {data}')
     if batch_size < 1 or ',' in gpu or not gpu.strip():
         raise ValueError('Use a positive batch size and exactly one GPU')
+    with (data / 'test.jsonl').open(encoding='utf-8-sig') as stream:
+        count = sum(bool(line.strip()) for line in stream)
+    limit = config.get('limit', count)
+    if type(limit) is not int or not 1 <= limit <= count:
+        raise ValueError(f'limit must be between 1 and {count}')
     plan, seen = [], {}
     for job in jobs:
         name = job['name']
@@ -147,7 +152,7 @@ def make_plan(config, gpu, output_root, batch_size=8):
                     **sampling_overrides(job.get('sampling', {}), f'jobs[{name}].sampling')}
         cmd = [sys.executable, '-u', str(Path(__file__).with_name('run_lora.py').resolve()),
                '--model', str(model), '--data', str(data), '--gpu', gpu,
-               '--infer-backend', 'vllm', '--preview-split', 'test', '--limit', '137',
+               '--infer-backend', 'vllm', '--preview-split', 'test', '--limit', str(limit),
                '--infer-batch-size', str(batch_size), '--image-tokens', '1024',
                '--max-length', '12288', '--max-new-tokens', '8192',
                '--vllm-gpu-memory-utilization', '0.7',

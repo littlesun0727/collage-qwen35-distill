@@ -119,7 +119,7 @@ def load_results(run, cache=None, partial=False, progress=False):
             target = None
         drawing, drawing_notes = drawable_target(text)
         parsed = {'source': source, 'image': im, 'digest': digest, 'response': response,
-                  'target': target, 'error': error, 'wrappers': wrappers,
+                  'finish_reason': row.get('finish_reason'), 'target': target, 'error': error, 'wrappers': wrappers,
                   'drawing': drawing, 'drawing_notes': drawing_notes}
         rows.append(parsed)
         if cache is not None:
@@ -175,7 +175,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
     overview = ''
     if targets:
         if not quiet:
-            print(f'[PREVIEW] 六项评测：固定 GT {len(targets)} 张；缺失预测保留在分母', flush=True)
+            print(f'[PREVIEW] 结构评测：固定 GT {len(targets)} 张；缺失预测保留在分母', flush=True)
         current_paths = {Path(t['images'][0]) for t in targets}
         if any(r['source'] not in current_paths for r in rows):
             raise ValueError('Predictions contain images outside the fixed input/GT cohort')
@@ -183,7 +183,8 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             evaluations[f'基线 · {baseline.name}'] = score_rows(targets, baseline_rows, cache=cache)
         evaluations[f'当前模型 · {run.name}'] = score_rows(targets, rows, cache=cache)
         export_metrics(run, targets, evaluations, gt_source, running=running)
-        overview = '<div class="overview"><h2>六项评测 · 固定 GT ' + str(len(targets)) + ' 张</h2>'
+        label = 'v3 结构与照片效果评测' if 'photo_effects' in next(iter(evaluations.values()))[0] else '六项评测'
+        overview = f'<div class="overview"><h2>{label} · 固定 GT ' + str(len(targets)) + ' 张</h2>'
         overview += metric_table([(name, summary) for name, (summary, _) in evaluations.items()])
         overview += ('<p class="note">主表计分来源：当前首次原始输出（未运行复检）。'
                      'IoU ≥ 0.50 一对一匹配；先逐图计算再平均。缺失/坏 JSON 不从 GT 分母剔除；'
@@ -280,7 +281,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
         cards.append(f'<article id="sample-{i + 1}"><h2>{i + 1}. {html.escape(row["source"].name)}</h2><section class="pictures">{cells}</section>{scores}</article>')
     progress = f'已完成 {completed} / {expected}' if expected is not None else f'已完成 {completed} 张'
     refresh = '<meta http-equiv="refresh" content="10">' if running else ''
-    page = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + refresh + '<title>GT 对照与六项评测</title>'
+    page = ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + refresh + '<title>GT 对照与结构评测</title>'
             '<style>body{font:15px/1.6 system-ui,sans-serif;margin:24px;background:#f2f5fa;color:#203249}'
             'article,.overview{background:white;padding:20px;margin:24px 0;border:1px solid #dce4ee;border-radius:12px}'
             'h1{font-size:28px}h2{font-size:20px}h3{margin:0 0 12px;font-size:16px}a{color:#1264bd}'
@@ -291,7 +292,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
             '.pictures p{font-size:12px}.legend{padding:8px 0}.legend span{margin-right:18px}'
             '@media(max-width:760px){body{margin:10px}.overview,article{padding:12px;overflow:auto}.pictures{min-width:760px}.metrics{min-width:640px}}'
             '@media print{body{margin:0;background:white}article{break-inside:avoid}details{display:none}a{color:inherit;text-decoration:none}}</style>'
-            f'<h1>GT 对照与六项评测</h1><p>{progress}。' + ('推理进行中，每10秒刷新；当前分数为临时结果，未完成预测暂按缺失计分。' if running else '推理已结束；是否全部成功请核对完成数量和日志。') +
+            f'<h1>GT 对照与结构评测</h1><p>{progress}。' + ('推理进行中，每10秒刷新；当前分数为临时结果，未完成预测暂按缺失计分。' if running else '推理已结束；是否全部成功请核对完成数量和日志。') +
             f'</p><p>基础结构检查通过 {valid}/{len(rows)}。'
             '画框独立于结构检查：能读取的框尽量显示，坏框单独跳过；显示调整不修改原始回复。'
             '预览图最长边限制为1600像素，不改变推理输入或 bbox 坐标。'

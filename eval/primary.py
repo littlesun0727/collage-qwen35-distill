@@ -71,6 +71,8 @@ def report_rows(summary):
     rows.append(("④ 匹配覆盖率（条件分数配套）", v["mean"], v["eligible_images"]))
     rows.append(("④ 人工审核处理方式正确率", None, 0))
     for key in ("photo_id", "linked_to"):
+        if key == "linked_to" and "photo_effects" in summary:
+            continue
         v = p["relations"][key]["f1"]
         rows.append((f"⑤ {key} F1", v["mean"], v["eligible_images"]))
     v = p["relations"]["occlusion_order"]["accuracy"]

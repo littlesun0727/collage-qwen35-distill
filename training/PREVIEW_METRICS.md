@@ -33,7 +33,11 @@ python -u training/preview_report.py \
 
 报告及 CSV 仅依赖 Pillow、NumPy、SciPy；训练环境依赖已列入 `training/requirements.txt`，现有环境只需补齐缺失包，无需升级训练组件。
 
-## 六项口径
+## v3 照片效果指标
+
+v3 标签会额外生成照片效果检测、几何误差和完整契约校验。正式队列默认覆盖整个 test split。指标定义和独立评分命令见 [评测说明](../eval/README.md#sft-v3-照片效果评测)。
+
+## 历史六项口径
 
 参考 [2026-11-03 归档六项评测 v3](https://github.com/littlesun0727/reports-achrive/blob/main/reports/2026-11-03/collage-demo/collage-qwen35-distill/runs/eval/covers137-six-metrics-auto-occlusions-20261102/index.html)。原有 `eval.score` 的 v2 接口保持兼容。
 

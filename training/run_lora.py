@@ -54,7 +54,7 @@ def main():
     p.add_argument('--vllm-max-model-len', type=int, help='Total context; default max-length + max-new-tokens')
     p.add_argument('--vllm-enforce-eager', action='store_true', help='Skip vLLM CUDA graphs to reduce memory use')
     p.add_argument('--images', type=Path, help='Directory of fixed preview images, not training data')
-    p.add_argument('--limit', type=int, default=4)
+    p.add_argument('--limit', type=int, help='Preview size; defaults to the full test split or 4 for other previews')
     p.add_argument('--preview-split', choices=['train', 'validation', 'test'],
                    help='Defaults to validation when present, otherwise train; never used for SFT')
     p.add_argument('--compare-to', type=Path, help='Previous inference run directory for side-by-side report')
@@ -115,7 +115,7 @@ def main():
     if not (model / 'config.json').is_file():
         p.error('--model must be a complete local model directory with config.json')
     if min(args.save_steps, args.eval_steps, args.batch_size, args.grad_accum,
-           args.max_length, args.image_tokens, args.limit) < 1:
+           args.max_length, args.image_tokens, args.limit if args.limit is not None else 1) < 1:
         p.error('Lengths and step count must be positive')
     if (args.max_steps is not None and args.max_steps < 1) or (args.epochs is not None and args.epochs <= 0):
         p.error('Training duration must be positive')
@@ -141,6 +141,8 @@ def main():
     validation = []
     split = (args.preview_split or ('validation' if (args.data / 'validation.jsonl').is_file() else 'train')) if infer else 'train'
     records = load_split(args.data, split)
+    if args.limit is None:
+        args.limit = len(records) if infer and split == 'test' and not args.images else 4
     ground_truth = records[:args.limit] if infer and not args.images else []
     if not infer and (args.data / 'validation.jsonl').is_file():
         validation = load_split(args.data, 'validation')

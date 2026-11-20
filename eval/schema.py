@@ -54,6 +54,8 @@ class Structure:
     errors: list = field(default_factory=list)
     json_valid: bool = True
     present: bool = True
+    raw: object = None
+    scale: tuple | None = None
 
     @property
     def valid(self):
@@ -79,6 +81,7 @@ def parse_structure(raw, *, present=True, error=None, coordinate_mode="normalize
             s.json_valid = False
             s.errors.append(f"invalid_json: {exc}")
             return s
+    s.raw = raw
     if not isinstance(raw, dict):
         s.errors.append("structure must be a JSON object")
         return s
@@ -92,6 +95,7 @@ def parse_structure(raw, *, present=True, error=None, coordinate_mode="normalize
         else:
             s.errors.append("pixel coordinates require positive finite width and height")
     scale = scales.get(mode) if isinstance(mode, str) else None
+    s.scale = scale
     if scale is None:
         s.errors.append(f"unsupported/unusable coordinate_mode: {mode!r}")
     objects = raw.get("objects")

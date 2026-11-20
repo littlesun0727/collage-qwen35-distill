@@ -11,6 +11,7 @@ import sys
 import numpy
 import scipy
 
+from .photo_effects import evaluate_effects, has_effects, summarize_effects, report_lines
 from . import PROTOCOL_VERSION
 from .io import align_prediction_ids, digest, load_occlusions, load_records, records_hash
 from .metrics import aggregate, evaluate_sample
@@ -28,7 +29,7 @@ def parse_record(record):
 
 
 def evaluate_dataset(gt, predictions, *, occlusions=None, threshold=0.5, require_occlusions=False,
-                     prediction_stage="unspecified"):
+                     prediction_stage="unspecified", label_version="auto"):
     if not gt:
         raise ValueError("GT evaluation set is empty")
     predictions = align_prediction_ids(predictions, gt)
@@ -36,6 +37,8 @@ def evaluate_dataset(gt, predictions, *, occlusions=None, threshold=0.5, require
     if set(occlusions) - gt.keys():
         raise ValueError("occlusion annotations contain unknown IDs")
     samples, effective_pairs = [], {}
+    use_v3 = label_version == 'v3' or (label_version == 'auto' and any(
+        r.meta.get('v3_prompt') or has_effects(parse_record(r).raw) for r in gt.values()))
     for sample_id in sorted(gt):
         record = gt[sample_id]
         inline = record.meta.get("occlusion_pairs")
@@ -48,6 +51,11 @@ def evaluate_dataset(gt, predictions, *, occlusions=None, threshold=0.5, require
         parsed_gt, parsed_pred = parse_record(record), parse_record(predictions.get(sample_id))
         sample = evaluate_sample(sample_id, parsed_gt, parsed_pred, pairs, threshold)
         sample["grouped_metrics"] = grouped_metrics(parsed_gt, parsed_pred)
+        if use_v3:
+            size = (record.meta.get('width'), record.meta.get('height'))
+            prediction = predictions.get(sample_id)
+            sample['photo_effects'] = evaluate_effects(parsed_gt, parsed_pred, size if all(size) else None,
+                                                        prediction.meta.get('finish_reason') if prediction else None)
         samples.append(sample)
     summary = aggregate(samples)
     summary["primary"] = summarize(samples, summary, prediction_stage)
@@ -69,6 +77,9 @@ def evaluate_dataset(gt, predictions, *, occlusions=None, threshold=0.5, require
         "prediction_records_sha256": records_hash(predictions),
         "occlusion_annotations_sha256": digest(effective_pairs),
     }
+    if use_v3:
+        summary['photo_effects'] = summarize_effects((s['photo_effects'] for s in samples), prediction_stage)
+        summary['protocol']['photo_effects'] = summary['photo_effects']['version']
     return summary, samples
 
 
@@ -134,7 +145,8 @@ def markdown_report(s):
         text += ["", "## 覆盖与输入提示", ""] + [f"- {w}" for w in s["warnings"]]
     diagnostic_text = "\n".join(text).replace("# 拼贴结构评测报告", "# 兼容 v1 诊断报告")
     diagnostic_text = diagnostic_text.replace("主指标", "旧版诊断")
-    return markdown_primary(s) + "\n---\n\n" + diagnostic_text + "\n"
+    effects = '\n'.join(report_lines(s['photo_effects'])) + '\n\n' if 'photo_effects' in s else ''
+    return effects + markdown_primary(s) + "\n---\n\n" + diagnostic_text + "\n"
 
 
 def main(argv=None):
@@ -149,6 +161,7 @@ def main(argv=None):
     parser.add_argument("--model", default="")
     parser.add_argument("--prediction-stage", choices=("unspecified", "raw_first", "final_accepted"), default="unspecified",
                         help="Declare raw first responses only; never label repaired outputs raw_first")
+    parser.add_argument("--label-version", choices=("auto","v2","v3"), default="auto")
     args = parser.parse_args(argv)
     try:
         gt, gt_meta = load_records(args.gt)
@@ -156,7 +169,7 @@ def main(argv=None):
         pairs = load_occlusions(args.occlusions, gt)
         summary, samples = evaluate_dataset(
             gt, predictions, occlusions=pairs, threshold=args.iou_threshold,
-            require_occlusions=args.require_occlusions, prediction_stage=args.prediction_stage)
+            require_occlusions=args.require_occlusions, prediction_stage=args.prediction_stage, label_version=args.label_version)
     except (ValueError, OSError, UnicodeError) as exc:
         parser.error(str(exc))
     code_dir = Path(__file__).parent

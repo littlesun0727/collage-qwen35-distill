@@ -29,6 +29,7 @@ def main():
     p.add_argument('--stage',choices=['raw_first','final_accepted'],required=True)
     p.add_argument('--occlusions',type=Path)
     p.add_argument('--out',type=Path,required=True)
+    p.add_argument('--label-version',choices=['auto','v2','v3'],default='auto')
     a=p.parse_args()
     batch=read(a.batch/'batch-summary.json')
     if 'elapsed_seconds_this_invocation' not in batch:
@@ -53,12 +54,12 @@ def main():
             if paths:
                 d=read(paths[0]); content=d.get('content')
                 raw_hash=hashlib.sha256(paths[0].read_bytes()).hexdigest()
-                rec=Record(sid,content,source=str(paths[0]),source_hash=raw_hash)
+                rec=Record(sid,content,meta={'finish_reason':d.get('finish_reason')},source=str(paths[0]),source_hash=raw_hash)
                 src.update(path=str(paths[0]),sha256=raw_hash,finish_reason=d.get('finish_reason'))
         if rec is not None:
             predictions[sid]=rec
         sources.append(src)
-    summary,samples=evaluate_dataset(gt,predictions,occlusions=load_occlusions(a.occlusions,gt),prediction_stage=a.stage)
+    summary,samples=evaluate_dataset(gt,predictions,occlusions=load_occlusions(a.occlusions,gt),prediction_stage=a.stage,label_version=a.label_version)
     summary['run']={'batch':str(a.batch.resolve()),'gt_input':metadata,'prediction_stage':a.stage,'sources':sources}
     if metadata.get('annotation_status') in ('teacher_prediction_unreviewed','mixed_candidate_annotations_unreviewed'):
         summary['warnings'].append('Unreviewed teacher annotations measure agreement, not verified accuracy.')
