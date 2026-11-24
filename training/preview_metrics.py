@@ -218,68 +218,90 @@ def fmt(value, kind='percent'):
 
 
 def metric_table(columns, *, per_sample=False):
-    """Render six rows with identical definitions in overview and sample cards."""
-    def get(data, group, key, kind='percent'):
-        value = data[group][key]
-        if per_sample:
-            return fmt(value, kind)
-        return f'{fmt(value["mean"], kind)} <small>({value["eligible_images"]}/{value["total_images"]} 张)</small>'
-
-    def values(data):
-        valid = float(data['structure_valid']) if per_sample else data['output_usability']['first_pass_core_valid_rate']
-        return [f'首次 {fmt(valid)}<br><small>复检后：N/A（未运行复检）</small>',
-                '召回 ' + get(data, 'photo', 'recall') + '<br>已找到框 IoU ' + get(data, 'photo', 'matched_mean_iou', 'iou'),
-                '召回 ' + get(data, 'fixed', 'recall') + '<br>已找到框 IoU ' + get(data, 'fixed', 'matched_mean_iou', 'iou'),
-                get(data, 'layer_order', 'rate'),
-                '连上 ' + get(data, 'frame_links', 'connected_rate') + '<br>全部连对 ' + get(data, 'frame_links', 'correct_rate'),
-                get(data, 'linked_to', 'rate')]
-
-    labels = ['1. JSON 结构通过率', '2. photo 找到多少、框多准', '3. overlay/text/frame 找到多少、框多准',
-              '4. 重叠元素顺序一致率', '5. frame 是否连上、是否全部连对', '6. linked_to 出框是否识别正确']
-    cells = [values(data) for _, data in columns]
+    """Show applicable measurements on sample cards and full coverage in the overview."""
     first = columns[0][1]
     total = 1 if per_sample else first['output_usability']['total_images']
-    scopes = [f'{total} 张']
-    for group, field, unit in [('photo', 'recall', '个元素'), ('fixed', 'recall', '个元素'),
-                               ('layer_order', 'rate', '对关系'), ('frame_links', 'connected_rate', '个 frame'),
-                               ('linked_to', 'rate', '个主体')]:
+    rows = []
+
+    def add_row(label, scope, cells):
+        if per_sample and not any(cells):
+            return
+        rows.append(f'<tr><td>{label}</td><td>{scope}</td>' +
+                    ''.join(f'<td>{cell}</td>' for cell in cells) + '</tr>')
+
+    def score(value, kind='percent'):
+        return '' if per_sample and value is None else fmt(value, kind)
+
+    def group_cell(entry, fields):
+        parts = []
+        for key, prefix, kind in fields:
+            value = entry[key]
+            if per_sample:
+                if value is not None:
+                    parts.append(prefix + fmt(value, kind))
+            else:
+                parts.append(f'{prefix}{fmt(value["mean"], kind)} '
+                             f'<small>({value["eligible_images"]}/{value["total_images"]} 张)</small>')
+        return '<br>'.join(parts)
+
+    validity = []
+    for _, data in columns:
+        valid = float(data['structure_valid']) if per_sample else data['output_usability']['first_pass_core_valid_rate']
+        cell = f'首次 {fmt(valid)}'
+        if not per_sample:
+            cell += '<br><small>复检后：N/A（未运行复检）</small>'
+        validity.append(cell)
+    add_row('1. JSON 结构通过率', f'{total} 张', validity)
+
+    detection = [('recall', '召回 ', 'percent'), ('matched_mean_iou', '已找到框 IoU ', 'iou')]
+    groups = [
+        ('2. photo 找到多少、框多准', 'photo', '个元素', detection),
+        ('3. overlay/text/frame 找到多少、框多准', 'fixed', '个元素', detection),
+        ('4. 重叠元素顺序一致率', 'layer_order', '对关系', [('rate', '', 'percent')]),
+        ('5. frame 是否连上、是否全部连对', 'frame_links', '个 frame',
+         [('connected_rate', '连上 ', 'percent'), ('correct_rate', '全部连对 ', 'percent')]),
+    ]
+    if 'photo_effects' not in first:
+        groups.append(('6. linked_to 出框是否识别正确', 'linked_to', '个主体', [('rate', '', 'percent')]))
+    for label, group, unit, fields in groups:
         entry = first[group]
-        n = (int(entry['gt_count'] > 0) if per_sample else entry[field]['eligible_images'])
-        scopes.append(f'{n} 张 · {entry["gt_count"]} {unit}')
-    table = '<table class="metrics"><thead><tr><th>关注项</th><th>固定 GT 范围</th>'
-    table += ''.join(f'<th>{html.escape(label)}</th>' for label, _ in columns) + '</tr></thead><tbody>'
+        if per_sample and not entry['gt_count']:
+            continue
+        n = 1 if per_sample else entry[fields[0][0]]['eligible_images']
+        add_row(label, f'{n} 张 · {entry["gt_count"]} {unit}',
+                [group_cell(data[group], fields) for _, data in columns])
+
     if 'photo_effects' in first:
-        labels.pop()
-        scopes.pop()
-        for cell in cells:
-            cell.pop()
         effects = [summarize_effects([d['photo_effects']], 'raw_first') if per_sample else d['photo_effects']
                    for _, d in columns]
-        labels.append('V3 首轮完整契约通过率')
-        scopes.append(f'{total} 张')
-        for cell, data in zip(cells, effects):
-            cell.append(fmt(data['valid_rate']))
+        add_row('V3 首轮完整契约通过率', f'{total} 张', [score(d['valid_rate']) for d in effects])
         for metric, label in [('background_accuracy', '背景类型准确率'), ('invalid_json_rate', '已返回预测的 JSON 解析失败率'),
                               ('truncated_rate', '截断率（仅有结束原因的预测）')]:
-            labels.append(label)
-            scopes.append('固定 GT')
-            for cell, data in zip(cells, effects):
-                cell.append(fmt(data[metric]))
+            add_row(label, '固定 GT', [score(d[metric]) for d in effects])
         for field, stats in effects[0]['detection'].items():
-            labels.append(field + ' · P / R / F1')
-            scopes.append(f"{stats['gt_images']} 张 · {stats['gt']} 个")
-            for cell, data in zip(cells, effects):
+            if per_sample and not stats['gt_images']:
+                continue
+            cells = []
+            for data in effects:
                 scores = data['detection'][field]['end_to_end']
-                cell.append(' / '.join(fmt(scores[k]) for k in ('precision','recall','f1')))
+                keys = ('precision', 'recall', 'f1')
+                if per_sample and any(scores[k] is None for k in keys):
+                    cells.append(' / '.join(f'{name} {fmt(scores[k])}' for name, k in zip(('P', 'R', 'F1'), keys)
+                                            if scores[k] is not None))
+                else:
+                    cells.append(' / '.join(fmt(scores[k]) for k in keys))
+            add_row(field + ' · P / R / F1', f"{stats['gt_images']} 张 · {stats['gt']} 个", cells)
         for field in sorted(set().union(*(d['quality'] for d in effects))):
-            labels.append(field)
-            scopes.append('匹配对象')
-            for cell, data in zip(cells, effects):
-                m = data['quality'].get(field, {})
-                cell.append(fmt(m.get('mean'), 'iou') + f" ({m.get('count', 0)})")
-    for i, label in enumerate(labels):
-        table += f'<tr><td>{label}</td><td>{scopes[i]}</td>' + ''.join(f'<td>{c[i]}</td>' for c in cells) + '</tr>'
-    return table + '</tbody></table>'
+            cells = []
+            for data in effects:
+                measurement = data['quality'].get(field, {})
+                value = score(measurement.get('mean'), 'iou')
+                cells.append(f"{value} ({measurement.get('count', 0)})" if value else '')
+            add_row(field, '匹配对象', cells)
+
+    headers = ''.join(f'<th>{html.escape(label)}</th>' for label, _ in columns)
+    return ('<table class="metrics"><thead><tr><th>关注项</th><th>固定 GT 范围</th>' +
+            headers + '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table>')
 
 
 def export_metrics(run, targets, evaluations, source, *, running=False):
