@@ -123,7 +123,8 @@ class ReportMetricTests(unittest.TestCase):
     def test_gt_left_baseline_scores_missing_and_csv(self):
         run, base = self.run_dir('current'), self.run_dir('base')
         self.predictions(run, [0])
-        self.predictions(base, [1, 0])
+        wrapped = '<think>\n</think>\n```json\n' + json.dumps(structure()) + '\n```'
+        write_jsonl(base / 'predictions.jsonl', [dict(self.records[i], response=wrapped) for i in [1, 0]])
         original = (run / 'predictions.jsonl').read_bytes()
         self.assertEqual(build_report(run, base, quiet=True), 1)
         page = (run / 'preview.html').read_text(encoding='utf-8')

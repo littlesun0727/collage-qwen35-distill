@@ -3,6 +3,7 @@ import csv
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -12,6 +13,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from eval.focused import REFERENCE_URL, evaluate_focused, overlap_pairs, summarize_focused
 from eval.photo_effects import evaluate_effects, has_effects, summarize_effects
 from eval.schema import parse_structure, strict_loads, validate_occlusions
+
+
+def unwrap_response(response):
+    """Remove only empty thinking and a complete outer JSON code fence."""
+    text = response.strip()
+    wrappers = []
+    empty_think = re.match(r'^<think>\s*</think>\s*', text)
+    if empty_think:
+        text = text[empty_think.end():]
+        wrappers.append('空 think 标签')
+    fence = re.fullmatch(r'```(?:json)?[ \t]*\r?\n(.*?)\r?\n```', text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+        wrappers.append('JSON 代码围栏')
+    return text, wrappers
 
 
 def read_jsonl(path):
@@ -171,7 +187,8 @@ def score_rows(targets, predictions, *, cache=None):
         if cache is not None and key in cache:
             sample = cache[key]
         else:
-            target, predicted = parse_structure(gt['structure']), parse_structure(raw, present=present)
+            payload = unwrap_response(raw)[0] if isinstance(raw, str) else raw
+            target, predicted = parse_structure(gt['structure']), parse_structure(payload, present=present)
             sample = evaluate_focused(gt['id'], target, predicted, gt['occlusion_pairs'])
             if use_v3:
                 sample['photo_effects'] = evaluate_effects(target, predicted, gt.get('image_size'), finish)
@@ -273,6 +290,7 @@ def export_metrics(run, targets, evaluations, source, *, running=False):
     report = {'protocol': {'version': 'collage-structure-eval-v3-preview', 'reference_url': REFERENCE_URL,
                           'iou_threshold': .5, 'aggregation': 'per-image mean on fixed GT-positive cohorts',
                           'prediction_stage': 'raw_first', 'repair_performed': False,
+                          'response_preprocessing': 'strip_empty_think_and_outer_json_fence_v1',
                           'gt_sha256': digest, 'gt_source': source, 'running': running,
                           'order_policies': sorted({t['occlusion_policy'] for t in targets})},
               'models': {name: summary for name, (summary, _) in evaluations.items()}}

@@ -4,7 +4,6 @@ import hashlib
 import html
 import json
 import math
-import re
 import time
 from pathlib import Path
 
@@ -12,22 +11,7 @@ from PIL import Image, ImageDraw, ImageOps
 
 from dataset_io import validate_target
 from preview_metrics import (REFERENCE_URL, export_metrics, image_path, load_ground_truth,
-                             metric_table, pixel_digest, score_rows)
-
-
-def unwrap_response(response):
-    """Remove only empty thinking and a complete outer JSON code fence."""
-    text = response.strip()
-    wrappers = []
-    empty_think = re.match(r'^<think>\s*</think>\s*', text)
-    if empty_think:
-        text = text[empty_think.end():]
-        wrappers.append('空 think 标签')
-    fence = re.fullmatch(r'```(?:json)?[ \t]*\r?\n(.*?)\r?\n```', text, flags=re.DOTALL)
-    if fence:
-        text = fence.group(1).strip()
-        wrappers.append('JSON 代码围栏')
-    return text, wrappers
+                             metric_table, pixel_digest, score_rows, unwrap_response)
 
 
 def drawable_target(text):
@@ -186,7 +170,7 @@ def build_report(run, baseline=None, *, partial=False, expected=None, cache=None
         label = 'v3 结构与照片效果评测' if 'photo_effects' in next(iter(evaluations.values()))[0] else '六项评测'
         overview = f'<div class="overview"><h2>{label} · 固定 GT ' + str(len(targets)) + ' 张</h2>'
         overview += metric_table([(name, summary) for name, (summary, _) in evaluations.items()])
-        overview += ('<p class="note">主表计分来源：当前首次原始输出（未运行复检）。'
+        overview += ('<p class="note">主表计分来源：首次回复。解析前去除空 think 标签及完整的外层 JSON 代码围栏。'
                      'IoU ≥ 0.50 一对一匹配；先逐图计算再平均。缺失/坏 JSON 不从 GT 分母剔除；'
                      '已找到框 IoU 为条件分数，须同时看召回率及适用图片数。'
                      '固定元素组内不区分 overlay/text/frame。顺序读取 GT 中固定的关系；'
