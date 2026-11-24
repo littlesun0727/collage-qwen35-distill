@@ -6,7 +6,7 @@ import io
 from contextlib import redirect_stdout
 
 from PIL import Image
-from preview_report import build_report, drawable_target, load_results
+from preview_report import build_report, draw_boxes, drawable_target, load_results
 
 
 class LenientPreviewTests(unittest.TestCase):
@@ -66,3 +66,22 @@ class LenientPreviewTests(unittest.TestCase):
             drawing, notes = drawable_target(text)
             self.assertEqual(drawing['objects'], [])
             self.assertTrue(notes)
+
+    def test_window_geometry_survives_prediction_preview(self):
+        target = {'objects': [
+            {'kind': 'photo', 'id': 'tilted', 'bbox': [100, 100, 500, 800],
+             'corners': {'top_left': [200, 100], 'top_right': [500, 200],
+                         'bottom_right': [400, 800], 'bottom_left': [100, 700]},
+             'popout': [50, 300, 250, 900]},
+            {'kind': 'photo', 'id': 'triangle', 'shape': 'other', 'bbox': [600, 100, 900, 700],
+             'points': [[600, 700], [750, 100], [900, 700]]},
+        ], 'layer_order': ['triangle', 'tilted']}
+        drawing, notes = drawable_target(json.dumps(target))
+        self.assertFalse(notes)
+        original = Image.new('RGB', (400, 200), 'white')
+        rendered = draw_boxes(original, drawing)
+        self.assertEqual(rendered.tobytes(), draw_boxes(original, target).tobytes())
+        self.assertEqual(rendered.getpixel((80, 20)), (255, 209, 102))  # TL
+        self.assertEqual(rendered.getpixel((300, 20)), (255, 209, 102))  # triangle tip
+        self.assertEqual(rendered.getpixel((270, 80)), (0, 217, 220))   # diagonal
+        self.assertEqual(rendered.getpixel((20, 60)), (255, 66, 136))   # popout

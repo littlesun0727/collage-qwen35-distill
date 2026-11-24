@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw, ImageOps
 from dataset_io import validate_target
 from preview_metrics import (REFERENCE_URL, export_metrics, image_path, load_ground_truth,
                              metric_table, pixel_digest, score_rows, unwrap_response)
+from eval.photo_effects import CORNERS, valid_field
+from preview_geometry import window_outline
 
 
 def drawable_target(text):
@@ -49,9 +51,9 @@ def drawable_target(text):
             continue
         if fixed != box:
             notes.append(f'对象 {index}：仅为显示整理反向坐标或裁剪越界部分，原始输出未改')
-        objects.append({'bbox': fixed, 'kind': str(obj.get('kind') or 'unknown'),
+        objects.append({**obj, 'bbox': fixed, 'kind': str(obj.get('kind') or 'unknown'),
                         'id': str(obj.get('id') or f'object_{index}')})
-    return {'objects': objects}, notes
+    return {'objects': objects, 'layer_order': value.get('layer_order')}, notes
 
 
 def load_results(run, cache=None, partial=False, progress=False):
@@ -111,18 +113,75 @@ def load_results(run, cache=None, partial=False, progress=False):
     return rows
 
 
+def dashed_box(draw, box, color, width):
+    x, y, right, bottom = box
+    dash = max(4, width * 3)
+    for left in range(round(x), round(right), dash + width * 2):
+        for edge in (y, bottom):
+            draw.line((left, edge, min(left + dash, right), edge), fill=color, width=width)
+    for top in range(round(y), round(bottom), dash + width * 2):
+        for edge in (x, right):
+            draw.line((edge, top, edge, min(top + dash, bottom)), fill=color, width=width)
+
+
 def draw_boxes(image, target):
     result = image.copy()
     draw = ImageDraw.Draw(result)
-    colors = {'photo': '#008cff', 'frame': '#00a040', 'overlay': '#ff304f', 'text': '#a030df'}
+    colors = {'photo': '#00d9dc', 'frame': '#66c4ff', 'overlay': '#b497ff', 'text': '#8ef58c'}
     w, h = result.size
-    for obj in target['objects']:
-        box = [n * (w if i % 2 == 0 else h) / 1000 for i, n in enumerate(obj['bbox'])]
+    width = max(2, round(max(w / 440, h / 540) * 1.7))
+
+    def px(point):
+        return point[0] * w / 1000, point[1] * h / 1000
+
+    def mark(point, name, color):
+        x, y = point
+        r = max(3, round(width * 1.5))
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=color, outline='#202826')
+        draw.text((max(0, min(w-16, x+r)), max(0, y-12)), name, fill=color,
+                  stroke_width=1, stroke_fill='#202826')
+
+    objects = target['objects']
+    order = target.get('layer_order')
+    if isinstance(order, list) and all(isinstance(k, str) for k in order):
+        ranks = {key: i for i, key in enumerate(order)}
+        objects = sorted(objects, key=lambda o: ranks.get(o['id'], len(order)))
+    for obj in objects:
+        box = (*px(obj['bbox']), *px(obj['bbox'][2:]))
         color = colors.get(obj['kind'], '#ff9900')
-        draw.rectangle(box, outline=color, width=max(2, w // 350))
+        mode, shape = obj.get('mode', 'window'), obj.get('shape', 'rectangle')
+        corners, axis, points, path, popout = [], [], [], [], None
+        if obj['kind'] == 'photo' and mode == 'window':
+            fields = {k: obj[k] for k in ('corners', 'axis', 'points', 'radius', 'star_points', 'popout')
+                      if k in obj and valid_field(k, obj[k], mode, shape, (1, 1))}
+            if 'corners' in fields:
+                corners = [px(fields['corners'][k]) for k in CORNERS]
+            axis = [px(p) for p in fields.get('axis', [])]
+            points = [px(p) for p in fields.get('points', [])]
+            if 'popout' in fields:
+                popout = (*px(fields['popout']), *px(fields['popout'][2:]))
+            path = window_outline(shape, box, (w, h), corners=corners, axis=axis, points=points,
+                                  radius=fields.get('radius', 0), star_points=fields.get('star_points', 5))
+        if path:
+            dashed_box(draw, box, color, max(1, width // 2))
+            draw.line([*path, path[0]], fill=color, width=width)
+        else:
+            draw.rectangle(box, outline=color, width=width)
         # IDs follow the project ASCII contract; tolerate unexpected IDs in diagnostics.
         label = f"{obj['kind']}:{obj['id']}".encode('ascii', 'replace').decode()
         draw.text((box[0], max(0, box[1] - 12)), label, fill=color, stroke_width=1, stroke_fill='white')
+        if axis:
+            draw.line(axis, fill='#ff7c44', width=width)
+        for p, name in zip(corners, ('TL', 'TR', 'BR', 'BL')):
+            mark(p, name, '#ffd166')
+        for i, p in enumerate(axis, 1):
+            mark(p, f'A{i}', '#ff7c44')
+        for i, p in enumerate(points, 1):
+            mark(p, str(i), '#ffd166')
+        if popout:
+            dashed_box(draw, popout, '#ff4288', width)
+            draw.text((popout[0]+2, popout[1]+2), 'popout', fill='#ff4288',
+                      stroke_width=1, stroke_fill='#202826')
     return result
 
 
